@@ -260,7 +260,11 @@ func fitLineWithBackground(s string, width int, bg lipgloss.Color) string {
 	bgEscape := fmt.Sprintf("\033[48;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
 	pad := ""
 	if w := ansi.StringWidth(s); w < width {
-		pad = strings.Repeat(" ", width-w)
+		// bgEscape again here, not just up front — s's own last token
+		// already closed with its own reset (every token is self-contained,
+		// see tintedFormatter), which would otherwise leave this padding
+		// colorless even though bgEscape was applied at the very start.
+		pad = bgEscape + strings.Repeat(" ", width-w)
 	}
 	return bgEscape + s + pad + "\033[0m"
 }
@@ -431,11 +435,34 @@ func (m model) renderDiff() string {
 		}
 	}
 
-	return lipgloss.NewStyle().
-		Border(panelBorder).
-		BorderForeground(colorBorder).
-		Padding(0, 1).
-		Render(strings.Join(window, "\n"))
+	return renderBorderedRaw(innerW, window)
+}
+
+// renderBorderedRaw draws the same rounded-border-plus-1-space-padding box
+// lipgloss.NewStyle().Border(...).Padding(0,1).Render(...) would, but
+// without ever handing already-colored content lines to lipgloss's own
+// Render — lipgloss's layout engine reprocesses embedded ANSI when it
+// computes per-line padding/width, which rewrites a full reset (\033[0m)
+// into separate default-fg/default-bg codes and then pads any shortfall
+// with its own plain (uncolored) spaces — silently destroying the
+// truecolor background fitLineWithBackground already baked all the way
+// across each line. Border corners/edges are rendered independently and
+// concatenated (never nested around a multi-segment already-rendered
+// string), same rule as everywhere else raw ANSI content gets composed.
+func renderBorderedRaw(innerW int, lines []string) string {
+	borderStyle := lipgloss.NewStyle().Foreground(colorBorder)
+	top := borderStyle.Render(panelBorder.TopLeft + strings.Repeat(panelBorder.Top, innerW+2) + panelBorder.TopRight)
+	bottom := borderStyle.Render(panelBorder.BottomLeft + strings.Repeat(panelBorder.Bottom, innerW+2) + panelBorder.BottomRight)
+	left := borderStyle.Render(panelBorder.Left)
+	right := borderStyle.Render(panelBorder.Right)
+
+	rows := make([]string, 0, len(lines)+2)
+	rows = append(rows, top)
+	for _, l := range lines {
+		rows = append(rows, left+" "+l+" "+right)
+	}
+	rows = append(rows, bottom)
+	return strings.Join(rows, "\n")
 }
 
 // rowBackground decides whether the rendered line at lines[idx] (idx may be

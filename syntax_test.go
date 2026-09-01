@@ -161,3 +161,32 @@ func TestFitLineWithBackgroundCoversWrappedContinuation(t *testing.T) {
 		t.Fatalf("expected a trailing reset so the tint can't bleed into the border, got %q", got)
 	}
 }
+
+// TestFitLineWithBackgroundPaddingItselfIsTinted guards a regression: s
+// itself always ends with its own token's closing reset (every token is
+// self-contained — open, text, reset), so prepending bg once at the very
+// start covers the real content but does nothing for whatever comes after
+// that trailing reset. Padding must carry its own bg escape too, or it
+// renders as a plain, untinted gap between the text and the border.
+func TestFitLineWithBackgroundPaddingItselfIsTinted(t *testing.T) {
+	got := fitLineWithBackground("hi", 10, bgAdded)
+	afterText := got[strings.Index(got, "hi")+len("hi"):]
+	if !strings.Contains(afterText, "\033[48;2;") {
+		t.Fatalf("expected the padding after the text to carry its own background escape (not rely on the leading one, which s's own trailing reset already canceled), got %q", got)
+	}
+}
+
+// TestRenderBorderedRawPreservesEmbeddedTruecolor guards against
+// renderDiff going back to lipgloss.NewStyle().Border(...).Padding(0,1).
+// Render(...) for content that's already pre-colored raw ANSI — lipgloss's
+// own layout engine reprocesses embedded escapes when it computes padding,
+// which silently drops a line's truecolor background. renderBorderedRaw
+// must pass each content line through untouched (only concatenating
+// independently-rendered border characters around it).
+func TestRenderBorderedRawPreservesEmbeddedTruecolor(t *testing.T) {
+	line := fitLineWithBackground("hi", 10, bgAdded)
+	out := renderBorderedRaw(10, []string{line})
+	if !strings.Contains(out, line) {
+		t.Fatalf("expected the pre-colored line to appear byte-for-byte in the bordered output, got %q", out)
+	}
+}
