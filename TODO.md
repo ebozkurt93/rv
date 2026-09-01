@@ -147,10 +147,22 @@ they land, with the commit that did it.
       an outer `styleCursor.Render(...)` wrap, and `renderDiff` tints
       `fitLine`'s padding to match via `fitLineWithBackground` so the
       highlight spans the full row width, not just the text.
-- [ ] **Multi-line comment editing.** The inline comment editor is single-
-      line only. Wanted: shift+enter or alt+enter inserts a newline instead
-      of submitting; a keybinding to open the comment in `$EDITOR` (like `o`
-      does for a diff line) for anyone who'd rather write a longer comment
-      there; and multi-line comment bodies need to actually render well in
-      the diff pane (renderComment/renderReply currently assume a single
-      line each).
+- [x] **Multi-line comment editing.** `alt+enter` inserts a newline instead
+      of submitting (shift+enter isn't reliably detectable across terminals
+      without Kitty's keyboard protocol, so it's not bound); `ctrl+e`
+      suspends into `$EDITOR` to compose the body there and reads it back;
+      renderComment/renderReply/the inline editor all handle multi-line
+      bodies now, continuation lines indented under the first. `c` on a line
+      with your own unresolved comment now edits it in place instead of
+      duplicating it, or adds a new reply if something's already responded
+      (editing the body then would silently change what the reply was
+      responding to) — only your own comments are offered this way, an
+      agent-authored one is left alone.
+- [ ] **Session state isn't scoped to the diff being reviewed.** A session
+      is keyed only by repo root (`sessionDir`), so two different diff specs
+      reviewed from the *same* checkout (not separate `git worktree`s — e.g.
+      `rv main..featureA` and later `rv main..featureB` from one directory)
+      share one `session.json`. Comments carry over by file+line regardless
+      of which branch/spec is actually showing, and could misattach to
+      unrelated code. Worth scoping the session key to (repo root, diff
+      spec) or similar — needs its own design pass.
