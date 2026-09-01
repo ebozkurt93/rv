@@ -89,6 +89,6 @@ func runTUI(diffSpec []string) error {
 		m.err = keymapErr
 	}
 
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

@@ -69,16 +69,21 @@ they land, with the commit that did it.
       as unreviewed again automatically — the hash just won't match, no
       explicit invalidation needed. Shown as a dimmed path + `✓` in the
       sidebar, and an "N/M files reviewed" count in the header.
-- [ ] **Watch/auto-reload.** Only reloads on manual `ctrl+r` or the 1s
-      comment-poll; doesn't notice a file changing on disk on its own.
+- [ ] **Watch/auto-reload.** Not needed for now — deprioritized. Only
+      reloads on manual `ctrl+r` or the 1s comment-poll; doesn't notice a
+      file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.
 - [ ] **Syntax highlighting.** Diff lines are colored by +/-/context only,
       no language-aware highlighting.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.
-- [ ] **Mouse support.** At least click-to-select in the sidebar. Was
-      "explicitly not planned" before; came up, so it's queued now.
+- [x] **Mouse support.** Click a sidebar row to select that file (hit-tests
+      through the exact same scroll math renderSidebar drew the frame
+      with, so it's correct even when the list has scrolled). Wheel scroll
+      over the sidebar changes the selected file; over the diff pane it
+      moves the cursor a few lines at a time. Ignored outside modeNormal —
+      a stray click while an overlay/prompt is open does nothing.
 - [ ] **Show/hide untracked/new files.** Needs scoping first — `rv` only
       ever diffs `git diff <spec>`, which never includes untracked files at
       all (git's own behavior), so "new files" today means files git tracks

@@ -35,6 +35,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "back from editor"
 		}
 		return m, nil
+	case tea.MouseMsg:
+		if m.mode == modeNormal {
+			m.handleMouse(msg)
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeComment:
