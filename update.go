@@ -341,20 +341,13 @@ func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
 	}
 	if !hadCount {
 		if defaultLast {
-			m.lineIndex = len(rows) - 1
+			m.lineIndex = lastContentRow(rows)
 		} else {
-			m.lineIndex = 0
+			m.lineIndex = firstContentRow(rows)
 		}
 		return
 	}
-	idx := count - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= len(rows) {
-		idx = len(rows) - 1
-	}
-	m.lineIndex = idx
+	m.lineIndex = nearestContentRow(rows, count-1)
 }
 
 // jumpToHunk moves the cursor to the next (dir>0) or previous (dir<0) hunk
@@ -445,18 +438,38 @@ func (m *model) jumpToComment(dir int) {
 	m.fileIndex, m.lineIndex = target.fileIdx, target.rowIdx
 }
 
+// moveCursor moves delta commentable rows up/down, transparently stepping
+// over hunk-header rows along the way — the cursor lands only on content,
+// never rests on a header, whether it's passing through one on its way
+// somewhere else or would otherwise land exactly on one.
 func (m *model) moveCursor(delta int) {
 	rows := m.currentRows()
 	if len(rows) == 0 {
 		return
 	}
-	m.lineIndex += delta
-	if m.lineIndex < 0 {
-		m.lineIndex = 0
+	dir, n := 1, delta
+	if delta < 0 {
+		dir, n = -1, -delta
 	}
-	if m.lineIndex >= len(rows) {
-		m.lineIndex = len(rows) - 1
+	cur := m.lineIndex
+	for i := 0; i < n; i++ {
+		next := cur
+		for {
+			next += dir
+			if next < 0 || next >= len(rows) {
+				next = cur // boundary — nothing further that direction
+				break
+			}
+			if rows[next].kind == rowLine {
+				break
+			}
+		}
+		if next == cur {
+			break
+		}
+		cur = next
 	}
+	m.lineIndex = cur
 }
 
 func (m *model) selectFile(idx int) {
@@ -470,7 +483,7 @@ func (m *model) selectFile(idx int) {
 		idx = len(m.files) - 1
 	}
 	m.fileIndex = idx
-	m.lineIndex = 0
+	m.lineIndex = firstContentRow(m.files[idx].rows)
 }
 
 // selectVisibleFile moves the selection by step among files that pass the

@@ -121,6 +121,9 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
 	}
+	if len(files) > 0 {
+		m.lineIndex = firstContentRow(files[0].rows)
+	}
 	return m
 }
 
@@ -143,6 +146,66 @@ func (m model) diffLabel() string {
 		return "HEAD"
 	}
 	return strings.Join(m.diffSpec, " ")
+}
+
+// The cursor must never rest on a rowHunkHeader — you can't comment on a
+// header, so stopping there is always a dead end that costs an extra
+// keypress. Every path that sets lineIndex funnels through one of these
+// three so that invariant holds everywhere, not just after }/{.
+
+// firstContentRow returns the index of the first commentable row in rows,
+// or 0 if there isn't one (shouldn't happen — every hunk has at least one
+// line — but keeps callers safe regardless).
+func firstContentRow(rows []diffRow) int {
+	for i, r := range rows {
+		if r.kind == rowLine {
+			return i
+		}
+	}
+	return 0
+}
+
+// lastContentRow is firstContentRow's counterpart.
+func lastContentRow(rows []diffRow) int {
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].kind == rowLine {
+			return i
+		}
+	}
+	if len(rows) == 0 {
+		return 0
+	}
+	return len(rows) - 1
+}
+
+// nearestContentRow returns idx (clamped into range) if it's already a
+// commentable row, otherwise the closest one — searching forward first,
+// since a "land roughly here" jump (e.g. {count}G on a header row) reading
+// as "the line right after" is more intuitive than snapping backward.
+func nearestContentRow(rows []diffRow, idx int) int {
+	if len(rows) == 0 {
+		return 0
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(rows) {
+		idx = len(rows) - 1
+	}
+	if rows[idx].kind == rowLine {
+		return idx
+	}
+	for i := idx + 1; i < len(rows); i++ {
+		if rows[i].kind == rowLine {
+			return i
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if rows[i].kind == rowLine {
+			return i
+		}
+	}
+	return idx
 }
 
 // currentRows returns the rows for the currently selected file, or nil if
@@ -178,12 +241,7 @@ func (m *model) setDiffFiles(diffFiles []FileDiff) {
 		m.lineIndex = 0
 		return
 	}
-	if m.lineIndex >= len(files[newIndex].rows) {
-		m.lineIndex = len(files[newIndex].rows) - 1
-	}
-	if m.lineIndex < 0 {
-		m.lineIndex = 0
-	}
+	m.lineIndex = nearestContentRow(files[newIndex].rows, m.lineIndex)
 	m.snapToVisibleFile()
 }
 

@@ -92,22 +92,24 @@ func TestSetDiffFilesEmptyResultResetsCursor(t *testing.T) {
 func TestCurrentLineLabel(t *testing.T) {
 	m := newModel("/repo", []FileDiff{fileDiffWithHunks("a.go", 3, 5)}, Session{}, nil)
 
-	if got := m.currentLineLabel(); got != "hunk" {
-		t.Fatalf("expected 'hunk' on a hunk-header row, got %q", got)
-	}
-
-	m.lineIndex = 1 // first content line of hunk 1 -> new-line 1
+	// The cursor invariant (never rest on a hunk header) means a freshly
+	// opened file already starts on its first content line, not row 0.
 	if got := m.currentLineLabel(); got != "1" {
-		t.Fatalf("expected '1', got %q", got)
+		t.Fatalf("expected '1' (cursor should never start on the header row), got %q", got)
 	}
 
 	// rows: 0=hdr,1-3=lines(1-3),4=hdr,5-9=lines(4-8)
-	m.lineIndex = 4
-	if got := m.currentLineLabel(); got != "hunk" {
-		t.Fatalf("expected 'hunk' on the 2nd hunk's header, got %q", got)
-	}
 	m.lineIndex = 5
 	if got := m.currentLineLabel(); got != "4" {
 		t.Fatalf("expected '4' (first line of the 2nd hunk), got %q", got)
+	}
+
+	// currentLineLabel's "hunk" fallback is defensive — the invariant means
+	// no normal code path should ever actually land lineIndex on a header,
+	// but if one slipped through, it should say so rather than panic or
+	// silently return a wrong number.
+	m.lineIndex = 4
+	if got := m.currentLineLabel(); got != "hunk" {
+		t.Fatalf("expected the defensive 'hunk' fallback, got %q", got)
 	}
 }
