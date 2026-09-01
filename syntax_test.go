@@ -142,3 +142,22 @@ func TestRowBackgroundTintsFullRowWidth(t *testing.T) {
 		t.Fatalf("expected padding to carry a truecolor background escape code, got %q", padded)
 	}
 }
+
+// TestFitLineWithBackgroundCoversWrappedContinuation guards a real bug: a
+// long single-token line (e.g. a whole-line comment) that word-wraps mid-
+// token leaves its second physical line with no color codes of its own —
+// the token's opening escape stayed on the first physical line — so once
+// each physical line is composited independently into the bordered panel,
+// the continuation rendered with no tint at all. fitLineWithBackground must
+// prepend bg, not just append it for padding, so every physical line is
+// self-contained regardless of where wrapLine happened to cut it.
+func TestFitLineWithBackgroundCoversWrappedContinuation(t *testing.T) {
+	continuation := "second half of a wrapped token, no leading color code"
+	got := fitLineWithBackground(continuation, len(continuation)+5, bgAdded)
+	if !strings.HasPrefix(got, "\033[48;2;") {
+		t.Fatalf("expected the background escape to lead the line (not just trail as padding), got %q", got)
+	}
+	if !strings.HasSuffix(got, "\033[0m") {
+		t.Fatalf("expected a trailing reset so the tint can't bleed into the border, got %q", got)
+	}
+}

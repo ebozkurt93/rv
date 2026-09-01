@@ -228,27 +228,41 @@ func fitLine(s string, width int) string {
 	return s
 }
 
-// fitLineWithBackground is fitLine, but the padding added to reach width is
-// tinted with bg instead of left plain — used for rows whose text already
-// carries a baked-in chroma background (added/removed/cursor tint, see
-// renderLine) so that tint visually spans the whole row instead of stopping
-// wherever the text happens to end. bg is emitted as a raw truecolor escape
-// (not via lipgloss.Style) so the padding always matches the tint
-// tintedFormatter baked into the text exactly, regardless of what color
-// profile lipgloss's own terminal detection lands on — the tint hexes are
-// fixed truecolor values (see syntax.go), not one of the basic 16 ANSI
-// colors, so a profile downgrade would otherwise shift the padding to a
-// visibly different color than the text next to it.
+// fitLineWithBackground is fitLine, but bg is applied to the *entire*
+// physical line (real text plus any padding), not just the padding — used
+// for rows whose text already carries a baked-in chroma background
+// (added/removed/cursor tint, see renderLine) so the tint spans the whole
+// row instead of stopping wherever the text happens to end.
+//
+// bg is prepended before s itself, not just appended after for the padding
+// shortfall, because word-wrap (wrapLine) can split a single chroma token —
+// one open-color/text/reset span — across two physical lines at a
+// mid-token word boundary. The continuation fragment on the second physical
+// line then starts with no color codes of its own (its token's opening
+// escape stayed on the first physical line); s can still be a well-formed,
+// self-contained ANSI string, but the color it "resumes into" isn't
+// guaranteed active at that fragment's start once each physical line is
+// composited independently into the bordered panel. Prepending bg
+// (re-)establishes it from column 0 regardless.
+//
+// bg is emitted as a raw truecolor escape (not via lipgloss.Style) so it
+// always matches the tint tintedFormatter baked into the text exactly,
+// regardless of what color profile lipgloss's own terminal detection lands
+// on — the tint hexes are fixed truecolor values (see syntax.go), not one
+// of the basic 16 ANSI colors, so a profile downgrade would otherwise shift
+// this to a visibly different color than the text next to it.
 func fitLineWithBackground(s string, width int, bg lipgloss.Color) string {
 	if width <= 0 {
 		return ""
 	}
 	s = ansi.Truncate(s, width, "…")
+	c := chroma.MustParseColour(string(bg))
+	bgEscape := fmt.Sprintf("\033[48;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+	pad := ""
 	if w := ansi.StringWidth(s); w < width {
-		c := chroma.MustParseColour(string(bg))
-		s += fmt.Sprintf("\033[48;2;%d;%d;%dm%s\033[0m", c.Red(), c.Green(), c.Blue(), strings.Repeat(" ", width-w))
+		pad = strings.Repeat(" ", width-w)
 	}
-	return s
+	return bgEscape + s + pad + "\033[0m"
 }
 
 // clampScroll centers cursor within a height-tall window over [0, total),
