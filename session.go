@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -55,4 +56,12 @@ func sessionPath(repoRoot string) string {
 
 func sessionLockPath(repoRoot string) string {
 	return filepath.Join(sessionDir(repoRoot), "session.lock")
+}
+
+// newCommentID returns a short random, collision-safe-enough id for a
+// comment created within a single session.
+func newCommentID() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return "c_" + hex.EncodeToString(b[:])
 }

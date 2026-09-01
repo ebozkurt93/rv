@@ -1,11 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func run(args []string) error {
 	if len(args) == 0 {
-		fmt.Println("rv", version, "— TUI not implemented yet")
-		return nil
+		return runTUI()
 	}
 
 	switch args[0] {
@@ -15,4 +18,31 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runTUI() error {
+	vcs := gitVCS{runner: gitRunner}
+
+	repoRoot, err := vcs.RepoRoot()
+	if err != nil {
+		return fmt.Errorf("not a git repo: %w", err)
+	}
+
+	raw, err := vcs.Diff()
+	if err != nil {
+		return err
+	}
+	diffFiles, err := ParseDiff(raw)
+	if err != nil {
+		return fmt.Errorf("parsing diff: %w", err)
+	}
+
+	session, err := loadSession(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	m := newModel(repoRoot, diffFiles, session)
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	return err
 }
