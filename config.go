@@ -127,5 +127,6 @@ func keymapFields(km *Keymap) map[string]*[]string {
 		"toggle_comment_scope": &km.ToggleCommentScope,
 		"toggle_untracked":     &km.ToggleUntracked,
 		"clear_session":        &km.ClearSession,
+		"toggle_split_view":    &km.ToggleSplitView,
 	}
 }

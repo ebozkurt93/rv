@@ -72,6 +72,9 @@ func (m model) viewContent() string {
 	}
 
 	diff := m.renderDiff()
+	if m.splitView {
+		diff = m.renderDiffSplit()
+	}
 	body := diff
 	if !m.sidebarHidden {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), diff)
@@ -453,6 +456,206 @@ func (m model) renderDiff() string {
 	return renderBorderedRaw(innerW, window)
 }
 
+// renderDiffSplit is renderDiff's side-by-side counterpart (see
+// splitpair.go and research/split-view-design.md). Unlike renderDiff, a
+// paired row's two sides can need two different tints at once (removed/red
+// on the left, added/green on the right) and can wrap to a different
+// number of physical lines each — buildSplitDiffLines (via
+// splitSidePhysicalLines/splitPadLine) already bakes each side's own tint
+// and wrap-padding in independently, so every window line here just needs
+// width-fitting, never rowBackground's single-tint-per-row pass.
+func (m model) renderDiffSplit() string {
+	innerW := m.width - m.diffPaneSidebarWidth() - borderOverheadW
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := m.bodyHeight() - borderOverheadH
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	lines, cursorLine, _, _ := m.buildSplitDiffLines(innerW)
+	scroll := clampScroll(cursorLine, len(lines), innerH)
+	end := min(scroll+innerH, len(lines))
+	window := fitBlock(lines[scroll:end], innerH)
+
+	for i := range window {
+		window[i] = fitLine(window[i], innerW)
+	}
+
+	return renderBorderedRaw(innerW, window)
+}
+
+// splitColumnWidths splits width between the two columns (minus 1 cell for
+// the vertical separator between them), giving the left column any odd
+// remainder.
+func splitColumnWidths(width int) (left, right int) {
+	sep := 1
+	avail := width - sep
+	if avail < 0 {
+		avail = 0
+	}
+	left = (avail + 1) / 2
+	right = avail - left
+	return left, right
+}
+
+// buildSplitDiffLines is buildDiffLinesDetailed's split-view counterpart:
+// one or more physical lines per pairedRow — one, unless m.wrapLines is on
+// and one side wraps to more than one physical line, in which case the
+// shorter side is padded to match (see splitSidePhysicalLines/
+// splitPadLine) so both columns stay the same height for this row.
+// Hunk headers span the full width; content rows are their left and right
+// columns joined by a separator; comment/reply/editor attachment rows
+// render full-width exactly as in unified view, since a comment doesn't
+// belong to either column specifically.
+func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, rowFor []int, mainLine []bool) {
+	if m.files[m.fileIndex].file.Binary {
+		return []string{styleMuted.Render("(binary file, not shown)")}, 0, []int{-1}, []bool{false}
+	}
+
+	rows := m.currentSplitRows()
+	fr := m.files[m.fileIndex]
+	byRow := m.commentsByRow(fr)
+	leftW, rightW := splitColumnWidths(width)
+
+	appendText := func(text string, rowIdx int, main bool) {
+		lines = append(lines, text)
+		rowFor = append(rowFor, rowIdx)
+		mainLine = append(mainLine, main)
+	}
+
+	for i, row := range rows {
+		if row.kind == rowHunkHeader {
+			start := len(lines)
+			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false)
+			if i == m.lineIndex {
+				cursorLine = start
+			}
+			continue
+		}
+
+		cursor := i == m.lineIndex
+		start := len(lines)
+		if cursor {
+			cursorLine = start
+		}
+		leftLines := splitSidePhysicalLines(fr.lexer, row.left, m.showLineNumbers, fr.numWidth, cursor, m.wrapLines, leftW)
+		rightLines := splitSidePhysicalLines(fr.lexer, row.right, m.showLineNumbers, fr.numWidth, cursor, m.wrapLines, rightW)
+		n := len(leftLines)
+		if len(rightLines) > n {
+			n = len(rightLines)
+		}
+		sep := lipgloss.NewStyle().Foreground(colorBorder).Render("│")
+		for k := 0; k < n; k++ {
+			l := splitPadLine(row.left, cursor, leftW)
+			if k < len(leftLines) {
+				l = leftLines[k]
+			}
+			r := splitPadLine(row.right, cursor, rightW)
+			if k < len(rightLines) {
+				r = rightLines[k]
+			}
+			appendText(l+sep+r, i, true)
+		}
+
+		for _, c := range byRow[i] {
+			// Same reasoning as buildDiffLinesDetailed: while this exact
+			// comment is being edited in place, the editor rendered below
+			// already shows its live (in-progress) text.
+			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
+				continue
+			}
+			for _, l := range strings.Split(renderComment(c), "\n") {
+				appendText(l, i, false)
+			}
+			composingReplyHere := m.mode == modeComment && i == m.lineIndex && m.replyingToCommentID == c.ID
+			for ri, r := range c.Replies {
+				if m.mode == modeComment && m.editingReplyID != "" && r.ID == m.editingReplyID {
+					continue
+				}
+				last := ri == len(c.Replies)-1 && !composingReplyHere
+				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
+					appendText(l, i, false)
+				}
+			}
+		}
+		if m.mode == modeComment && i == m.lineIndex {
+			for _, l := range strings.Split(m.renderCommentEditor(), "\n") {
+				appendText(l, i, false)
+			}
+		}
+	}
+	return lines, cursorLine, rowFor, mainLine
+}
+
+// splitSideTint decides one column's background tint, mirroring
+// renderLine's own added/removed/cursor precedence: the cursor row's tint
+// always wins, otherwise it follows l.Kind. l == nil (this side has no
+// content — an unmatched removed- or added-only row) has nothing to tint
+// unless the cursor is on this row.
+func splitSideTint(l *Line, cursor bool) (bg color.Color, tinted bool) {
+	if cursor {
+		return bgCursor, true
+	}
+	if l == nil {
+		return nil, false
+	}
+	switch l.Kind {
+	case LineAdded:
+		return bgAdded, true
+	case LineRemoved:
+		return bgRemoved, true
+	default:
+		return nil, false
+	}
+}
+
+// splitPadLine is one blank, width-fitted physical line for a column,
+// tinted the same as splitSidePhysicalLines would tint real content on
+// that side — used to pad a shorter-wrapped (or entirely absent) side out
+// to match how many physical lines the other column's wrap produced, so a
+// genuine modified pair whose sides wrap to a different line count still
+// shows a fully tinted rectangle on both sides rather than a blank gap.
+func splitPadLine(l *Line, cursor bool, width int) string {
+	bg, tinted := splitSideTint(l, cursor)
+	if tinted {
+		return fitLineWithBackground("", width, bg)
+	}
+	return fitLine("", width)
+}
+
+// splitSidePhysicalLines renders one column of a paired row into one or
+// more already width-fitted, tinted physical lines — mirroring wrapLine's
+// contract (one entry per physical line) but per column instead of per
+// row, since a genuine modified pair can wrap each side to a different
+// number of physical lines. l == nil always yields exactly one blank line;
+// the caller (buildSplitDiffLines) pads it out to match the other side's
+// count via splitPadLine. wrap false always yields exactly one line
+// (truncated, never wrapped), matching renderDiff's own non-wrap path.
+func splitSidePhysicalLines(lexer chroma.Lexer, l *Line, showNumbers bool, numWidth int, cursor, wrap bool, width int) []string {
+	bg, tinted := splitSideTint(l, cursor)
+	fit := func(s string) string {
+		if tinted {
+			return fitLineWithBackground(s, width, bg)
+		}
+		return fitLine(s, width)
+	}
+	if l == nil {
+		return []string{fit("")}
+	}
+	text := renderLine(lexer, *l, showNumbers, numWidth, cursor)
+	if !wrap {
+		return []string{fit(text)}
+	}
+	physical := wrapLine(text, width)
+	out := make([]string, len(physical))
+	for i, p := range physical {
+		out[i] = fit(p)
+	}
+	return out
+}
+
 // renderBorderedRaw draws the same rounded-border-plus-1-space-padding box
 // lipgloss.NewStyle().Border(...).Padding(0,1).Render(...) would, but
 // without ever handing already-colored content lines to lipgloss's own
@@ -688,6 +891,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.ToggleLineNumbers, desc: "show/hide line numbers"},
 		{keys: k.ToggleWrap, desc: "wrap long lines instead of truncating"},
 		{keys: k.ToggleUntracked, desc: "show/hide files git isn't tracking at all"},
+		{keys: k.ToggleSplitView, desc: "old/new side by side instead of unified"},
 		{section: "Mouse"},
 		{keys: []string{"click"}, desc: "click a sidebar row to select that file"},
 		{keys: []string{"scroll"}, desc: "over the sidebar: change file · over the diff: move the cursor"},

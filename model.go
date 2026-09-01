@@ -36,11 +36,17 @@ type diffRow struct {
 	line       Line
 }
 
+func (r diffRow) isHeader() bool { return r.kind == rowHunkHeader }
+
 // fileRows is a file's diff flattened into rows, precomputed once per file
 // so cursor movement is just index arithmetic.
 type fileRows struct {
 	file FileDiff
 	rows []diffRow
+	// splitRows is rows' split-view counterpart (see splitpair.go) —
+	// precomputed alongside rows so switching the split-view toggle is
+	// just picking which of the two to use, not a re-parse.
+	splitRows []pairedRow
 	// numWidth is how many digits wide this file's line-number gutter
 	// columns need to be — sized to the file's own largest line number
 	// rather than a fixed width, so a 40-line file gets a 2-char gutter
@@ -70,6 +76,7 @@ func flattenFile(fd FileDiff) fileRows {
 	if fr.numWidth < 1 {
 		fr.numWidth = 1
 	}
+	fr.splitRows = flattenFileSplit(fd)
 	return fr
 }
 
@@ -123,6 +130,11 @@ type model struct {
 	showLineNumbers bool
 	wrapLines       bool
 	showUntracked   bool
+	// splitView shows old/new side by side (see splitpair.go) instead of
+	// the unified single-column diff. Shares wrapLines with unified view —
+	// each side of a paired row wraps independently within its own column
+	// (see render.go's splitSidePhysicalLines).
+	splitView bool
 
 	// trackedDiffs is the `git diff <spec>` result — always shown.
 	// untrackedDiffs is synthesized from files git isn't tracking at all
@@ -153,6 +165,7 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 		wrapLines:                 prefs.WrapLines,
 		showUntracked:             prefs.ShowUntracked,
 		commentNavIncludeResolved: prefs.CommentNavIncludeResolved,
+		splitView:                 prefs.SplitView,
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
@@ -198,6 +211,7 @@ func (m model) uiPrefs() uiPrefs {
 		WrapLines:                 m.wrapLines,
 		ShowUntracked:             m.showUntracked,
 		CommentNavIncludeResolved: m.commentNavIncludeResolved,
+		SplitView:                 m.splitView,
 	}
 }
 
@@ -240,17 +254,28 @@ func fileDiffStats(fd FileDiff) (added, removed int) {
 	return added, removed
 }
 
-// The cursor must never rest on a rowHunkHeader — you can't comment on a
+// The cursor must never rest on a header row — you can't comment on a
 // header, so stopping there is always a dead end that costs an extra
 // keypress. Every path that sets lineIndex funnels through one of these
 // three so that invariant holds everywhere, not just after }/{.
+//
+// Generified over contentRow so both the unified view's []diffRow and the
+// split view's []pairedRow (see splitpair.go) share this logic instead of a
+// forked copy.
+
+// contentRow is the common shape firstContentRow/lastContentRow/
+// nearestContentRow need: anything that can say whether it's a header (a
+// dead end for the cursor) or actual content.
+type contentRow interface {
+	isHeader() bool
+}
 
 // firstContentRow returns the index of the first commentable row in rows,
 // or 0 if there isn't one (shouldn't happen — every hunk has at least one
 // line — but keeps callers safe regardless).
-func firstContentRow(rows []diffRow) int {
+func firstContentRow[R contentRow](rows []R) int {
 	for i, r := range rows {
-		if r.kind == rowLine {
+		if !r.isHeader() {
 			return i
 		}
 	}
@@ -258,9 +283,9 @@ func firstContentRow(rows []diffRow) int {
 }
 
 // lastContentRow is firstContentRow's counterpart.
-func lastContentRow(rows []diffRow) int {
+func lastContentRow[R contentRow](rows []R) int {
 	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].kind == rowLine {
+		if !rows[i].isHeader() {
 			return i
 		}
 	}
@@ -274,7 +299,7 @@ func lastContentRow(rows []diffRow) int {
 // commentable row, otherwise the closest one — searching forward first,
 // since a "land roughly here" jump (e.g. {count}G on a header row) reading
 // as "the line right after" is more intuitive than snapping backward.
-func nearestContentRow(rows []diffRow, idx int) int {
+func nearestContentRow[R contentRow](rows []R, idx int) int {
 	if len(rows) == 0 {
 		return 0
 	}
@@ -284,16 +309,16 @@ func nearestContentRow(rows []diffRow, idx int) int {
 	if idx >= len(rows) {
 		idx = len(rows) - 1
 	}
-	if rows[idx].kind == rowLine {
+	if !rows[idx].isHeader() {
 		return idx
 	}
 	for i := idx + 1; i < len(rows); i++ {
-		if rows[i].kind == rowLine {
+		if !rows[i].isHeader() {
 			return i
 		}
 	}
 	for i := idx - 1; i >= 0; i-- {
-		if rows[i].kind == rowLine {
+		if !rows[i].isHeader() {
 			return i
 		}
 	}
@@ -307,6 +332,14 @@ func (m model) currentRows() []diffRow {
 		return nil
 	}
 	return m.files[m.fileIndex].rows
+}
+
+// currentSplitRows is currentRows' split-view counterpart.
+func (m model) currentSplitRows() []pairedRow {
+	if m.fileIndex < 0 || m.fileIndex >= len(m.files) {
+		return nil
+	}
+	return m.files[m.fileIndex].splitRows
 }
 
 // setDiffFiles replaces the model's diff with a freshly re-parsed one (see
@@ -333,7 +366,11 @@ func (m *model) setDiffFiles(diffFiles []FileDiff) {
 		m.lineIndex = 0
 		return
 	}
-	m.lineIndex = nearestContentRow(files[newIndex].rows, m.lineIndex)
+	if m.splitView {
+		m.lineIndex = nearestContentRow(files[newIndex].splitRows, m.lineIndex)
+	} else {
+		m.lineIndex = nearestContentRow(files[newIndex].rows, m.lineIndex)
+	}
 	m.snapToVisibleFile()
 }
 
@@ -373,6 +410,28 @@ func (m model) halfPageSize() int {
 // currentLine returns the Line under the cursor, if the cursor is on a
 // commentable row.
 func (m model) currentLine() (Line, bool) {
+	if m.splitView {
+		rows := m.currentSplitRows()
+		if m.lineIndex < 0 || m.lineIndex >= len(rows) {
+			return Line{}, false
+		}
+		row := rows[m.lineIndex]
+		if row.kind != rowLine {
+			return Line{}, false
+		}
+		// A genuine modified pair has both sides — prefer the new (right)
+		// side, matching the "prefer new-side" convention already used
+		// below in currentLineLabel and in lineNumberMatches; an
+		// unmatched removed-only row has no right side, so fall back to
+		// left.
+		if row.right != nil {
+			return *row.right, true
+		}
+		if row.left != nil {
+			return *row.left, true
+		}
+		return Line{}, false
+	}
 	rows := m.currentRows()
 	if m.lineIndex < 0 || m.lineIndex >= len(rows) {
 		return Line{}, false
@@ -392,6 +451,23 @@ func (m model) currentLine() (Line, bool) {
 // where you landed, independent of whether the line-number gutter (#) is
 // even on.
 func (m model) currentLineLabel() string {
+	if m.splitView {
+		rows := m.currentSplitRows()
+		if m.lineIndex < 0 || m.lineIndex >= len(rows) {
+			return ""
+		}
+		row := rows[m.lineIndex]
+		if row.kind == rowHunkHeader {
+			return "hunk"
+		}
+		if row.right != nil && row.right.NewLine != nil {
+			return strconv.Itoa(*row.right.NewLine)
+		}
+		if row.left != nil && row.left.OldLine != nil {
+			return strconv.Itoa(*row.left.OldLine)
+		}
+		return ""
+	}
 	rows := m.currentRows()
 	if m.lineIndex < 0 || m.lineIndex >= len(rows) {
 		return ""
@@ -435,6 +511,12 @@ func (m model) commentsForCurrentLine() []Comment {
 // (*model).jumpToComment).
 func (m model) locateComment(c Comment) (fileIdx, rowIdx int, ok bool) {
 	for fi, fr := range m.files {
+		if m.splitView {
+			if idx, anchored := commentAnchorRowSplit(fr, c); anchored {
+				return fi, idx, true
+			}
+			continue
+		}
 		if idx, anchored := commentAnchorRow(fr, c); anchored {
 			return fi, idx, true
 		}
@@ -449,7 +531,16 @@ func (m model) locateComment(c Comment) (fileIdx, rowIdx int, ok bool) {
 func (m model) commentsByRow(fr fileRows) map[int][]Comment {
 	byRow := make(map[int][]Comment)
 	for _, c := range m.session.Comments {
-		if idx, ok := commentAnchorRow(fr, c); ok {
+		var (
+			idx int
+			ok  bool
+		)
+		if m.splitView {
+			idx, ok = commentAnchorRowSplit(fr, c)
+		} else {
+			idx, ok = commentAnchorRow(fr, c)
+		}
+		if ok {
 			byRow[idx] = append(byRow[idx], c)
 		}
 	}
@@ -506,6 +597,40 @@ func commentAnchorRow(fr fileRows, c Comment) (rowIdx int, ok bool) {
 	match, matches := -1, 0
 	for i, row := range fr.rows {
 		if row.kind == rowLine && row.line.Content == c.LineContent {
+			match, matches = i, matches+1
+		}
+	}
+	if matches == 1 {
+		return match, true
+	}
+	return 0, false
+}
+
+// commentAnchorRowSplit is commentAnchorRow's split-view counterpart: the
+// same two-pass (exact line-number+content match, then unique-content
+// fallback) logic, but checking both sides of a pairedRow — a comment
+// anchors to whichever side (old or new) it was originally created
+// against, and either side (or, for a genuine modified pair, potentially
+// both) can match.
+func commentAnchorRowSplit(fr fileRows, c Comment) (rowIdx int, ok bool) {
+	if fr.file.Path != c.File {
+		return 0, false
+	}
+	sideMatches := func(l *Line) bool {
+		return l != nil && lineNumberMatches(*l, c) && (c.LineContent == "" || l.Content == c.LineContent)
+	}
+	for i, row := range fr.splitRows {
+		if row.kind == rowLine && (sideMatches(row.left) || sideMatches(row.right)) {
+			return i, true
+		}
+	}
+	if c.LineContent == "" {
+		return 0, false
+	}
+	contentMatches := func(l *Line) bool { return l != nil && l.Content == c.LineContent }
+	match, matches := -1, 0
+	for i, row := range fr.splitRows {
+		if row.kind == rowLine && (contentMatches(row.left) || contentMatches(row.right)) {
 			match, matches = i, matches+1
 		}
 	}

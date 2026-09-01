@@ -16,6 +16,7 @@ type uiPrefs struct {
 	WrapLines                 bool `json:"wrap_lines"`
 	ShowUntracked             bool `json:"show_untracked"`
 	CommentNavIncludeResolved bool `json:"comment_nav_include_resolved"`
+	SplitView                 bool `json:"split_view"`
 }
 
 func defaultUIPrefs() uiPrefs {

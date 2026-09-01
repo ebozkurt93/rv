@@ -42,6 +42,7 @@ type Keymap struct {
 	ToggleCommentScope []string // n/N include resolved comments too, instead of skipping them
 	ToggleUntracked    []string // show/hide files git isn't tracking at all
 	ClearSession       []string // wipe every comment and reviewed mark for this repo's session (asks to confirm)
+	ToggleSplitView    []string // old/new side by side instead of unified
 }
 
 func defaultKeymap() Keymap {
@@ -81,6 +82,7 @@ func defaultKeymap() Keymap {
 		ToggleCommentScope: []string{"C"},
 		ToggleUntracked:    []string{"u"},
 		ClearSession:       []string{"D"},
+		ToggleSplitView:    []string{"s"},
 	}
 }
 

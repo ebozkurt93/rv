@@ -396,6 +396,21 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.wrapLines = !m.wrapLines
 		m.persistUIPrefs()
 
+	case keyMatches(msg, k.ToggleSplitView):
+		m.splitView = !m.splitView
+		m.persistUIPrefs()
+		// The cursor's row index means something different in each
+		// representation (a pairedRow can pack multiple diffRows into
+		// one), so re-clamp it against whichever one is now active
+		// instead of landing on an arbitrary, possibly out-of-range row.
+		if m.fileIndex >= 0 && m.fileIndex < len(m.files) {
+			if m.splitView {
+				m.lineIndex = nearestContentRow(m.files[m.fileIndex].splitRows, m.lineIndex)
+			} else {
+				m.lineIndex = nearestContentRow(m.files[m.fileIndex].rows, m.lineIndex)
+			}
+		}
+
 	case keyMatches(msg, k.ToggleUntracked):
 		m.toggleShowUntracked()
 		m.persistUIPrefs()
@@ -484,19 +499,26 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // "{count}G" — jump to that 1-based row number, clamped to the file's
 // extent.
 func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
-	rows := m.currentRows()
+	if m.splitView {
+		jumpToIn(m.currentSplitRows(), &m.lineIndex, hadCount, count, defaultLast)
+		return
+	}
+	jumpToIn(m.currentRows(), &m.lineIndex, hadCount, count, defaultLast)
+}
+
+func jumpToIn[R contentRow](rows []R, lineIndex *int, hadCount bool, count int, defaultLast bool) {
 	if len(rows) == 0 {
 		return
 	}
 	if !hadCount {
 		if defaultLast {
-			m.lineIndex = lastContentRow(rows)
+			*lineIndex = lastContentRow(rows)
 		} else {
-			m.lineIndex = firstContentRow(rows)
+			*lineIndex = firstContentRow(rows)
 		}
 		return
 	}
-	m.lineIndex = nearestContentRow(rows, count-1)
+	*lineIndex = nearestContentRow(rows, count-1)
 }
 
 // jumpToHunk moves the cursor to the next (dir>0) or previous (dir<0) hunk
@@ -505,30 +527,47 @@ func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
 // off the end of the current file's hunks into the next/prev visible file
 // instead of stopping — see jumpToHunkAcrossFiles.
 func (m *model) jumpToHunk(dir int) {
-	rows := m.currentRows()
-	i := m.lineIndex
+	var (
+		target int
+		ok     bool
+	)
+	if m.splitView {
+		target, ok = jumpToHunkIn(m.currentSplitRows(), m.lineIndex, dir)
+	} else {
+		target, ok = jumpToHunkIn(m.currentRows(), m.lineIndex, dir)
+	}
+	if !ok {
+		m.jumpToHunkAcrossFiles(dir)
+		return
+	}
+	m.lineIndex = target
+}
+
+// jumpToHunkIn is jumpToHunk's representation-agnostic core: it returns the
+// next/prev hunk's first content row and true, or false if it ran off the
+// end of rows (the caller falls back to jumpToHunkAcrossFiles).
+func jumpToHunkIn[R contentRow](rows []R, cur, dir int) (target int, ok bool) {
+	i := cur
 	for {
 		i += dir
 		if i < 0 || i >= len(rows) {
-			m.jumpToHunkAcrossFiles(dir)
-			return
+			return 0, false
 		}
-		if rows[i].kind != rowHunkHeader {
+		if !rows[i].isHeader() {
 			continue
 		}
-		target := i
-		if next := i + 1; next < len(rows) && rows[next].kind == rowLine {
+		target = i
+		if next := i + 1; next < len(rows) && !rows[next].isHeader() {
 			target = next
 		}
 		// If that first line is where we already are (we're searching
 		// backward and just hit our own hunk's header, since we're normally
 		// sitting right after it), keep looking past it — otherwise "{"
 		// would look like a no-op instead of moving to the previous hunk.
-		if target == m.lineIndex {
+		if target == cur {
 			continue
 		}
-		m.lineIndex = target
-		return
+		return target, true
 	}
 }
 
@@ -552,12 +591,21 @@ func (m *model) jumpToHunkAcrossFiles(dir int) {
 	pos = ((pos+dir)%len(vis) + len(vis)) % len(vis)
 	newFileIdx := vis[pos]
 
-	rows := m.files[newFileIdx].rows
 	var target int
-	if dir > 0 {
-		target = firstContentRow(rows)
+	if m.splitView {
+		rows := m.files[newFileIdx].splitRows
+		if dir > 0 {
+			target = firstContentRow(rows)
+		} else {
+			target = lastHunkFirstContentRow(rows)
+		}
 	} else {
-		target = lastHunkFirstContentRow(rows)
+		rows := m.files[newFileIdx].rows
+		if dir > 0 {
+			target = firstContentRow(rows)
+		} else {
+			target = lastHunkFirstContentRow(rows)
+		}
 	}
 	m.fileIndex = newFileIdx
 	m.lineIndex = target
@@ -567,10 +615,10 @@ func (m *model) jumpToHunkAcrossFiles(dir int) {
 // the index of its first content line — the backward counterpart of
 // firstContentRow, used when crossing into the previous file so "{" lands
 // consistently on a hunk's start rather than the file's last line.
-func lastHunkFirstContentRow(rows []diffRow) int {
+func lastHunkFirstContentRow[R contentRow](rows []R) int {
 	for i := len(rows) - 1; i >= 0; i-- {
-		if rows[i].kind == rowHunkHeader {
-			if next := i + 1; next < len(rows) && rows[next].kind == rowLine {
+		if rows[i].isHeader() {
+			if next := i + 1; next < len(rows) && !rows[next].isHeader() {
 				return next
 			}
 			break
@@ -638,15 +686,22 @@ func (m *model) jumpToComment(dir int) {
 // never rests on a header, whether it's passing through one on its way
 // somewhere else or would otherwise land exactly on one.
 func (m *model) moveCursor(delta int) {
-	rows := m.currentRows()
-	if len(rows) == 0 {
+	if m.splitView {
+		m.lineIndex = moveCursorIn(m.currentSplitRows(), m.lineIndex, delta)
 		return
+	}
+	m.lineIndex = moveCursorIn(m.currentRows(), m.lineIndex, delta)
+}
+
+// moveCursorIn is moveCursor's representation-agnostic core.
+func moveCursorIn[R contentRow](rows []R, cur, delta int) int {
+	if len(rows) == 0 {
+		return cur
 	}
 	dir, n := 1, delta
 	if delta < 0 {
 		dir, n = -1, -delta
 	}
-	cur := m.lineIndex
 	for i := 0; i < n; i++ {
 		next := cur
 		for {
@@ -655,7 +710,7 @@ func (m *model) moveCursor(delta int) {
 				next = cur // boundary — nothing further that direction
 				break
 			}
-			if rows[next].kind == rowLine {
+			if !rows[next].isHeader() {
 				break
 			}
 		}
@@ -664,7 +719,7 @@ func (m *model) moveCursor(delta int) {
 		}
 		cur = next
 	}
-	m.lineIndex = cur
+	return cur
 }
 
 func (m *model) selectFile(idx int) {
@@ -678,6 +733,10 @@ func (m *model) selectFile(idx int) {
 		idx = len(m.files) - 1
 	}
 	m.fileIndex = idx
+	if m.splitView {
+		m.lineIndex = firstContentRow(m.files[idx].splitRows)
+		return
+	}
 	m.lineIndex = firstContentRow(m.files[idx].rows)
 }
 

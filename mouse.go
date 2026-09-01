@@ -72,7 +72,16 @@ func (m *model) clickDiffRow(y int) {
 		innerH = 1
 	}
 
-	lines, cursorLine, rowFor := m.buildDiffLines(innerW)
+	var (
+		lines      []string
+		cursorLine int
+		rowFor     []int
+	)
+	if m.splitView {
+		lines, cursorLine, rowFor, _ = m.buildSplitDiffLines(innerW)
+	} else {
+		lines, cursorLine, rowFor = m.buildDiffLines(innerW)
+	}
 	scroll := clampScroll(cursorLine, len(lines), innerH)
 
 	row := y - m.headerHeight() - 1 // +1 for the diff panel's own top border row
@@ -83,16 +92,24 @@ func (m *model) clickDiffRow(y int) {
 	if idx < 0 || idx >= len(rowFor) {
 		return
 	}
-
-	rows := m.currentRows()
 	target := rowFor[idx]
-	if target < 0 || target >= len(rows) {
-		return
-	}
+
 	// A click can land on a hunk-header line (or, in wrap mode, on a
 	// comment/reply line whose row happens to be one) — nearestContentRow
 	// keeps the cursor invariant (never on a header) instead of ignoring
 	// the click outright.
+	if m.splitView {
+		rows := m.currentSplitRows()
+		if target < 0 || target >= len(rows) {
+			return
+		}
+		m.lineIndex = nearestContentRow(rows, target)
+		return
+	}
+	rows := m.currentRows()
+	if target < 0 || target >= len(rows) {
+		return
+	}
 	m.lineIndex = nearestContentRow(rows, target)
 }
 
