@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -143,6 +144,20 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.PrevFile):
 		m.selectFile(m.fileIndex - 1)
 
+	case keyMatches(msg, k.NextHunk):
+		for i := 0; i < count; i++ {
+			m.jumpToHunk(1)
+		}
+	case keyMatches(msg, k.PrevHunk):
+		for i := 0; i < count; i++ {
+			m.jumpToHunk(-1)
+		}
+
+	case keyMatches(msg, k.NextComment):
+		m.jumpToComment(1)
+	case keyMatches(msg, k.PrevComment):
+		m.jumpToComment(-1)
+
 	case keyMatches(msg, k.Bottom):
 		m.jumpTo(hadCount, count, true)
 	case keyMatches(msg, k.Top): // wasPendingG, i.e. second "g" of "gg"
@@ -248,6 +263,74 @@ func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
 		idx = len(rows) - 1
 	}
 	m.lineIndex = idx
+}
+
+// jumpToHunk moves the cursor to the next (dir>0) or previous (dir<0) hunk
+// header within the current file. No-op if there isn't one that direction
+// (doesn't wrap — jumping past the last hunk of a file is more likely a
+// sign to switch files than to loop back to the first one).
+func (m *model) jumpToHunk(dir int) {
+	rows := m.currentRows()
+	for i := m.lineIndex + dir; i >= 0 && i < len(rows); i += dir {
+		if rows[i].kind == rowHunkHeader {
+			m.lineIndex = i
+			return
+		}
+	}
+}
+
+// jumpToComment moves the cursor to the next (dir>0) or previous (dir<0)
+// unresolved comment, across all files in sidebar order, wrapping around at
+// either end — resolved comments are skipped since there's nothing left to
+// act on there.
+func (m *model) jumpToComment(dir int) {
+	type loc struct{ fileIdx, rowIdx int }
+	var locs []loc
+	for _, c := range m.session.Comments {
+		if c.Resolved {
+			continue
+		}
+		if fi, ri, ok := m.locateComment(c); ok {
+			locs = append(locs, loc{fi, ri})
+		}
+	}
+	if len(locs) == 0 {
+		return
+	}
+	sort.Slice(locs, func(i, j int) bool {
+		if locs[i].fileIdx != locs[j].fileIdx {
+			return locs[i].fileIdx < locs[j].fileIdx
+		}
+		return locs[i].rowIdx < locs[j].rowIdx
+	})
+
+	before := func(a, b loc) bool {
+		if a.fileIdx != b.fileIdx {
+			return a.fileIdx < b.fileIdx
+		}
+		return a.rowIdx < b.rowIdx
+	}
+	cur := loc{m.fileIndex, m.lineIndex}
+
+	var target loc
+	if dir > 0 {
+		target = locs[0] // wrap
+		for _, l := range locs {
+			if before(cur, l) {
+				target = l
+				break
+			}
+		}
+	} else {
+		target = locs[len(locs)-1] // wrap
+		for i := len(locs) - 1; i >= 0; i-- {
+			if before(locs[i], cur) {
+				target = locs[i]
+				break
+			}
+		}
+	}
+	m.fileIndex, m.lineIndex = target.fileIdx, target.rowIdx
 }
 
 func (m *model) moveCursor(delta int) {

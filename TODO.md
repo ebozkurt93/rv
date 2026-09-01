@@ -13,12 +13,12 @@ they land, with the commit that did it.
       the cursor at that line, via `$VISUAL`/`$EDITOR`/`vi` (matching git's
       own fallback chain) — `+N file` for terminal editors, `-g file:N` for
       VS Code.
-- [ ] **Hunk-level jump.** Movement is line-by-line only (`j`/`k`) — no
-      `}`/`{` to jump to the next/prev hunk, which gets tedious on large
-      diffs.
-- [ ] **Cross-file comment navigation.** No way to jump to the next/prev
-      unresolved comment regardless of which file it's in — you have to
-      manually switch files and scroll.
+- [x] **Hunk-level jump.** `}`/`{` jump to the next/prev hunk header within
+      the current file (respects a count, e.g. `3}`). Doesn't wrap or cross
+      files — reaching the last hunk and pressing `}` again is a no-op.
+- [x] **Cross-file comment navigation.** `n`/`N` jump to the next/prev
+      *unresolved* comment across all files, in sidebar order, wrapping
+      around at either end. Resolved comments are skipped.
 - [ ] **Search/filter.** No `/` to jump to a file by name or search diff
       content. Sidebar just lists everything with no way to narrow it down.
 - [ ] **Help overlay.** No `?` screen — the footer hint line is the only

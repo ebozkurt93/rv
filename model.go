@@ -181,6 +181,26 @@ func (m model) commentsForCurrentLine() []Comment {
 	return commentsOnLine(m.session.Comments, m.files[m.fileIndex].file.Path, line)
 }
 
+// locateComment finds where c's anchor line lives in the currently loaded
+// diff — which file, and which row within that file's flattened rows — so
+// the cursor can be moved directly to it (see (*model).jumpToComment).
+func (m model) locateComment(c Comment) (fileIdx, rowIdx int, ok bool) {
+	for fi, fr := range m.files {
+		if fr.file.Path != c.File {
+			continue
+		}
+		for ri, row := range fr.rows {
+			if row.kind != rowLine {
+				continue
+			}
+			if len(commentsOnLine([]Comment{c}, fr.file.Path, row.line)) > 0 {
+				return fi, ri, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // commentsOnLine returns comments in comments anchored to line within file.
 // A comment matches on new-line number if it has one, otherwise on
 // old-line number (mirroring how a comment is created in

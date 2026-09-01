@@ -14,6 +14,10 @@ type Keymap struct {
 	HalfPageUp     []string
 	NextFile       []string
 	PrevFile       []string
+	NextHunk       []string
+	PrevHunk       []string
+	NextComment    []string
+	PrevComment    []string
 	Top            []string // second half of "gg"
 	Bottom         []string
 	AddComment     []string
@@ -38,6 +42,10 @@ func defaultKeymap() Keymap {
 		HalfPageUp:     []string{"ctrl+u"},
 		NextFile:       []string{"tab", "]"},
 		PrevFile:       []string{"shift+tab", "["},
+		NextHunk:       []string{"}"},
+		PrevHunk:       []string{"{"},
+		NextComment:    []string{"n"},
+		PrevComment:    []string{"N"},
 		Top:            []string{"g"},
 		Bottom:         []string{"G"},
 		AddComment:     []string{"c"},

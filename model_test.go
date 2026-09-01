@@ -11,6 +11,24 @@ func fileDiffWithLines(path string, n int) FileDiff {
 	return FileDiff{Path: path, Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: lines}}}
 }
 
+// fileDiffWithHunks builds a file with len(hunkSizes) hunks, each with the
+// given number of context lines, for tests that need multiple hunks to jump
+// between.
+func fileDiffWithHunks(path string, hunkSizes ...int) FileDiff {
+	fd := FileDiff{Path: path, Status: FileModified}
+	line := 1
+	for _, n := range hunkSizes {
+		var lines []Line
+		for i := 0; i < n; i++ {
+			ln := line
+			lines = append(lines, Line{Kind: LineContext, Content: "x", OldLine: &ln, NewLine: &ln})
+			line++
+		}
+		fd.Hunks = append(fd.Hunks, Hunk{Header: "h", Lines: lines})
+	}
+	return fd
+}
+
 func TestSetDiffFilesKeepsSelectionOnSamePath(t *testing.T) {
 	m := newModel("/repo", []FileDiff{
 		fileDiffWithLines("a.go", 5),
