@@ -117,15 +117,14 @@ they land, with the commit that did it.
       all (git's own behavior), so "new files" today means files git tracks
       as newly-added in the diff (status `A`), not untracked working-tree
       files. Clarify which is actually wanted before building a toggle.
-- [ ] **Fragile comment re-anchoring.** Comments match purely by file + line
-      number, nothing else (no content hash, no context). If the commented
-      line stops appearing at that position (edit reverted, or unrelated
-      lines shifted above it), the comment either silently disappears from
-      the diff pane (still present in the session file and in
-      `rv comment list`, just not shown attached to anything) or — worse —
-      silently reattaches to a different, unrelated line that happens to
-      land at the same number. No orphaned-comment indicator, no
-      content-based matching. Worth fixing if this bites in practice.
+- [x] **Fragile comment re-anchoring.** Comment now records the exact line
+      content at creation time (`LineContent`). `commentAnchorRow` prefers
+      the original file+line-number position if its content still matches
+      there, falls back to wherever in the file that content now uniquely
+      appears (an ambiguous or absent match orphans the comment rather than
+      guessing wrong), and falls back further to pure line-number matching
+      for comments predating this (empty `LineContent`). Orphaned comments
+      show as a count in the header instead of silently vanishing.
 - [ ] **Split (side-by-side) view vs. current stacked/unified view.** Real
       rendering feature, not a small toggle: needs old/new lines paired into
       columns, handling unequal add/remove counts per hunk, a width
