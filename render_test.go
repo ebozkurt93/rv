@@ -4,19 +4,17 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/termenv"
 )
 
 func TestHelpOverlayTogglesWithoutChangingFrameHeight(t *testing.T) {
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 5)}, Session{}, nil)
 	m.width, m.height = 100, 24
 
-	normalHeight := len(strings.Split(m.View(), "\n"))
+	normalHeight := len(strings.Split(m.View().Content, "\n"))
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	m2, ok := mm.(model)
 	if !ok {
 		t.Fatalf("Update did not return a model")
@@ -25,7 +23,7 @@ func TestHelpOverlayTogglesWithoutChangingFrameHeight(t *testing.T) {
 		t.Fatalf("expected modeHelp after '?', got %v", m2.mode)
 	}
 
-	helpHeight := len(strings.Split(m2.View(), "\n"))
+	helpHeight := len(strings.Split(m2.View().Content, "\n"))
 	if normalHeight != helpHeight {
 		t.Fatalf("frame height changed opening help: normal=%d help=%d", normalHeight, helpHeight)
 	}
@@ -35,9 +33,9 @@ func TestHelpOverlayClosesOnEscHelpOrQuestionMark(t *testing.T) {
 	base := newModel("/repo", nil, Session{}, nil)
 	base.mode = modeHelp
 
-	for _, key := range []tea.KeyMsg{
-		{Type: tea.KeyEsc},
-		{Type: tea.KeyRunes, Runes: []rune("?")},
+	for _, key := range []tea.KeyPressMsg{
+		{Code: tea.KeyEsc},
+		{Code: '?', Text: "?"},
 	} {
 		mm, _ := base.updateHelp(key)
 		m := mm.(model)
@@ -51,7 +49,7 @@ func TestHelpOverlayIgnoresUnrelatedKeys(t *testing.T) {
 	base := newModel("/repo", nil, Session{}, nil)
 	base.mode = modeHelp
 
-	mm, _ := base.updateHelp(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mm, _ := base.updateHelp(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m := mm.(model)
 	if m.mode != modeHelp {
 		t.Fatalf("expected an unrelated key to leave help open, got mode=%v", m.mode)
@@ -71,7 +69,7 @@ func TestHelpOverlayScrollsPastOneScreen(t *testing.T) {
 		t.Fatalf("test needs a terminal short enough that help overflows one screen")
 	}
 
-	mm, _ := m.updateHelp(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	mm, _ := m.updateHelp(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	m2 := mm.(model)
 	if m2.helpScroll != 1 {
 		t.Fatalf("expected 'j' to scroll the help overlay down by 1, got helpScroll=%d", m2.helpScroll)
@@ -79,7 +77,7 @@ func TestHelpOverlayScrollsPastOneScreen(t *testing.T) {
 
 	// Scrolling can't run past the point where the last line is on screen.
 	for i := 0; i < 1000; i++ {
-		mm, _ = m2.updateHelp(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		mm, _ = m2.updateHelp(tea.KeyPressMsg{Code: 'j', Text: "j"})
 		m2 = mm.(model)
 	}
 	maxScroll := len(m2.helpLines()) - (m2.bodyHeight() - borderOverheadH)
@@ -87,7 +85,7 @@ func TestHelpOverlayScrollsPastOneScreen(t *testing.T) {
 		t.Fatalf("expected scrolling to clamp at %d, got %d", maxScroll, m2.helpScroll)
 	}
 
-	mm, _ = m2.updateHelp(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	mm, _ = m2.updateHelp(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	m3 := mm.(model)
 	if m3.helpScroll != maxScroll-1 {
 		t.Fatalf("expected 'k' to scroll back up by 1, got helpScroll=%d", m3.helpScroll)
@@ -102,13 +100,13 @@ func TestMouseWheelScrollsHelpOverlay(t *testing.T) {
 	m.width, m.height = 80, 10
 	m.mode = modeHelp
 
-	mm, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	mm, _ := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	m2 := mm.(model)
 	if m2.helpScroll <= 0 {
 		t.Fatalf("expected wheel-down to scroll the help overlay down, got helpScroll=%d", m2.helpScroll)
 	}
 
-	mm, _ = m2.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	mm, _ = m2.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
 	m3 := mm.(model)
 	if m3.helpScroll >= m2.helpScroll {
 		t.Fatalf("expected wheel-up to scroll back up, got helpScroll=%d (was %d)", m3.helpScroll, m2.helpScroll)
@@ -233,9 +231,6 @@ func TestComposingReplyKeepsConnectorRunning(t *testing.T) {
 }
 
 func TestReplyStyleReflectsThreadResolution(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.ANSI)
-	defer lipgloss.SetColorProfile(termenv.Ascii)
-
 	reply := Reply{Author: "agent", Body: "on it"}
 
 	unresolved := renderReply(reply, false, true)

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // sessionPollInterval trades off staleness against needless disk stats;
@@ -48,11 +48,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeNormal:
 			m.handleMouse(msg)
 		case modeHelp:
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				m.scrollHelp(-3)
-			case tea.MouseButtonWheelDown:
-				m.scrollHelp(3)
+			if _, ok := msg.(tea.MouseWheelMsg); ok {
+				switch msg.Mouse().Button {
+				case tea.MouseWheelUp:
+					m.scrollHelp(-3)
+				case tea.MouseWheelDown:
+					m.scrollHelp(3)
+				}
 			}
 		}
 		return m, nil
@@ -132,10 +134,8 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input = string(r[:len(r)-1])
 		}
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.input += string(msg.Runes)
-		} else if msg.Type == tea.KeySpace {
-			m.input += " "
+		if text := msg.Key().Text; text != "" {
+			m.input += text
 		}
 	}
 	return m, nil
@@ -249,9 +249,10 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Accumulate digits for a pending count (e.g. the "10" of "10j") without
 	// touching pendingG, so a count can still precede a "gg" chord.
-	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-		if _, ok := digitRune(msg.Runes[0], m.countBuffer); ok {
-			m.countBuffer += string(msg.Runes[0])
+	if text := msg.Key().Text; len(text) == 1 {
+		r := []rune(text)[0]
+		if _, ok := digitRune(r, m.countBuffer); ok {
+			m.countBuffer += string(r)
 			m.status = ""
 			return m, nil
 		}
@@ -471,10 +472,8 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input = string(r[:len(r)-1])
 		}
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.input += string(msg.Runes)
-		} else if msg.Type == tea.KeySpace {
-			m.input += " "
+		if text := msg.Key().Text; text != "" {
+			m.input += text
 		}
 	}
 	return m, nil

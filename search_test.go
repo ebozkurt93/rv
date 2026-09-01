@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func threeFileModel() model {
@@ -42,7 +42,7 @@ func TestSlashOpensSearchPrefillingCurrentFilter(t *testing.T) {
 	m := threeFileModel()
 	m.fileFilter = "foo"
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m2 := mm.(model)
 	if m2.mode != modeSearch {
 		t.Fatalf("expected modeSearch, got %v", m2.mode)
@@ -56,13 +56,13 @@ func TestSearchConfirmAppliesFilterAndSnapsSelection(t *testing.T) {
 	m := threeFileModel()
 	m.fileIndex = 2 // docs/readme.md
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m2 := mm.(model)
 	for _, r := range "bar" {
-		mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		mm, _ = m2.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m2 = mm.(model)
 	}
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m3 := mm.(model)
 
 	if m3.mode != modeNormal {
@@ -80,11 +80,11 @@ func TestSearchCancelLeavesFilterUnchanged(t *testing.T) {
 	m := threeFileModel()
 	m.fileFilter = "foo"
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
 	m2 := mm.(model)
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	m2 = mm.(model)
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	m3 := mm.(model)
 
 	if m3.mode != modeNormal {

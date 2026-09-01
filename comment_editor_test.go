@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TestAddCommentOnFreshLineStartsBlank guards the baseline: a line with no
@@ -14,7 +14,7 @@ func TestAddCommentOnFreshLineStartsBlank(t *testing.T) {
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{RepoRoot: "/repo"}, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.mode != modeComment || m2.input != "" || m2.editingCommentID != "" || m2.replyingToCommentID != "" {
 		t.Fatalf("expected a blank new-comment editor, got mode=%v input=%q editing=%q replying=%q",
@@ -43,7 +43,7 @@ func TestAddCommentOnOwnUnrepliedCommentEditsInPlace(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.mode != modeComment || m2.input != "original" || m2.editingCommentID != "c_1" {
 		t.Fatalf("expected the editor pre-filled for in-place editing, got mode=%v input=%q editing=%q",
@@ -70,7 +70,7 @@ func TestAddCommentOnOwnUnrepliedCommentEditsInPlace(t *testing.T) {
 	}
 
 	m2.input = "edited"
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m3 := mm.(model)
 	if len(m3.session.Comments) != 1 {
 		t.Fatalf("expected editing in place, not a new comment — got %d comments", len(m3.session.Comments))
@@ -100,7 +100,7 @@ func TestAddCommentOnRepliedThreadAddsReply(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.mode != modeComment || m2.input != "" || m2.replyingToCommentID != "c_1" || m2.editingCommentID != "" {
 		t.Fatalf("expected a blank reply editor targeting c_1, got mode=%v input=%q editing=%q replying=%q",
@@ -108,7 +108,7 @@ func TestAddCommentOnRepliedThreadAddsReply(t *testing.T) {
 	}
 
 	m2.input = "thanks, will merge"
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m3 := mm.(model)
 	if len(m3.session.Comments) != 1 {
 		t.Fatalf("expected the reply to attach to the existing thread, not create a new comment — got %d comments", len(m3.session.Comments))
@@ -146,7 +146,7 @@ func TestAddCommentOnOwnLastReplyEditsItInPlace(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.mode != modeComment || m2.input != "typo in this reply" || m2.editingReplyID != "r_2" ||
 		m2.editingCommentID != "" || m2.replyingToCommentID != "" {
@@ -155,7 +155,7 @@ func TestAddCommentOnOwnLastReplyEditsItInPlace(t *testing.T) {
 	}
 
 	m2.input = "fixed typo"
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m3 := mm.(model)
 	c := m3.session.Comments[0]
 	if len(c.Replies) != 2 {
@@ -189,7 +189,7 @@ func TestAddCommentIgnoresAgentAuthoredComments(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.editingCommentID != "" || m2.replyingToCommentID != "" || m2.input != "" {
 		t.Fatalf("expected an agent-authored comment to be left alone, got editing=%q replying=%q input=%q",
@@ -216,14 +216,14 @@ func TestEditingResolvedCommentUnresolvesIt(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	m2 := mm.(model)
 	if m2.editingCommentID != "c_1" {
 		t.Fatalf("expected a resolved-but-unreplied comment to still be editable in place, got editing=%q", m2.editingCommentID)
 	}
 
 	m2.input = "still relevant"
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m3 := mm.(model)
 	if m3.session.Comments[0].Resolved {
 		t.Fatalf("expected editing a resolved comment to un-resolve it")

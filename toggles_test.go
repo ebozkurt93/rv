@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestToggleSidebarHidesAndShowsPanel(t *testing.T) {
@@ -14,13 +14,13 @@ func TestToggleSidebarHidesAndShowsPanel(t *testing.T) {
 		t.Fatal("expected sidebar visible by default")
 	}
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	m2 := mm.(model)
 	if !m2.sidebarHidden {
 		t.Fatal("expected sidebar hidden after t")
 	}
 
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	m3 := mm.(model)
 	if m3.sidebarHidden {
 		t.Fatal("expected sidebar visible again after second t")
@@ -36,13 +36,13 @@ func TestTogglesPersistAcrossNewModel(t *testing.T) {
 		t.Fatalf("unexpected starting defaults: %+v", m.uiPrefs())
 	}
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	m2 := mm.(model)
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("#")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
 	m3 := mm.(model)
-	mm, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	mm, _ = m3.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	m3b := mm.(model)
-	mm, _ = m3b.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
+	mm, _ = m3b.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
 	m4 := mm.(model)
 
 	if !m4.sidebarHidden || m4.showLineNumbers || !m4.wrapLines || !m4.commentNavIncludeResolved {
@@ -85,7 +85,7 @@ func TestDeleteCommentRequiresConfirmation(t *testing.T) {
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 	m.lineIndex = 1 // first content line, which has NewLine=1
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	m2 := mm.(model)
 	if m2.mode != modeConfirmDelete {
 		t.Fatalf("expected d to open confirm-delete prompt, got mode=%v", m2.mode)
@@ -95,16 +95,16 @@ func TestDeleteCommentRequiresConfirmation(t *testing.T) {
 	}
 
 	// 'n' cancels without deleting.
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m3 := mm.(model)
 	if m3.mode != modeNormal || len(m3.session.Comments) != 1 {
 		t.Fatalf("expected cancel to leave the comment alone, got mode=%v comments=%d", m3.mode, len(m3.session.Comments))
 	}
 
 	// 'd' then 'y' actually deletes.
-	mm, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	mm, _ = m3.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	m4 := mm.(model)
-	mm, _ = m4.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	mm, _ = m4.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m5 := mm.(model)
 	if m5.mode != modeNormal || len(m5.session.Comments) != 0 {
 		t.Fatalf("expected 'y' to delete the comment, got mode=%v comments=%d", m5.mode, len(m5.session.Comments))
@@ -131,7 +131,7 @@ func TestClearSessionRequiresConfirmation(t *testing.T) {
 
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'D', Text: "D"})
 	m2 := mm.(model)
 	if m2.mode != modeConfirmClearSession {
 		t.Fatalf("expected D to open the confirm-clear prompt, got mode=%v", m2.mode)
@@ -141,16 +141,16 @@ func TestClearSessionRequiresConfirmation(t *testing.T) {
 	}
 
 	// 'n' cancels without clearing.
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m3 := mm.(model)
 	if m3.mode != modeNormal || len(m3.session.Comments) != 1 {
 		t.Fatalf("expected cancel to leave the session alone, got mode=%v comments=%d", m3.mode, len(m3.session.Comments))
 	}
 
 	// 'D' then 'y' actually clears everything.
-	mm, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	mm, _ = m3.Update(tea.KeyPressMsg{Code: 'D', Text: "D"})
 	m4 := mm.(model)
-	mm, _ = m4.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	mm, _ = m4.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m5 := mm.(model)
 	if m5.mode != modeNormal || len(m5.session.Comments) != 0 || len(m5.session.Reviewed) != 0 {
 		t.Fatalf("expected 'y' to clear the session, got mode=%v comments=%d reviewed=%d",

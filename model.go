@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/chroma/v2"
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type mode int

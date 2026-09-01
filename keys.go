@@ -1,6 +1,6 @@
 package main
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 // Keymap follows vim conventions throughout: j/k for line movement, gg/G for
 // jump-to-top/bottom, and single-letter mnemonics for actions (c)omment,

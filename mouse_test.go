@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func threeSimpleFilesModel(t *testing.T) model {
@@ -25,13 +25,13 @@ func threeSimpleFilesModel(t *testing.T) model {
 func TestClickSidebarRowSelectsThatFile(t *testing.T) {
 	m := threeSimpleFilesModel(t)
 
-	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 5, Button: tea.MouseLeft})
 	m2 := mm.(model)
 	if m2.files[m2.fileIndex].file.Path != "b.go" {
 		t.Fatalf("expected clicking row y=5 to select b.go, got %q", m2.files[m2.fileIndex].file.Path)
 	}
 
-	mm, _ = m.Update(tea.MouseMsg{X: 5, Y: 6, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ = m.Update(tea.MouseClickMsg{X: 5, Y: 6, Button: tea.MouseLeft})
 	m3 := mm.(model)
 	if m3.files[m3.fileIndex].file.Path != "c.go" {
 		t.Fatalf("expected clicking row y=6 to select c.go, got %q", m3.files[m3.fileIndex].file.Path)
@@ -43,7 +43,7 @@ func TestClickOutsideSidebarRowsIsIgnored(t *testing.T) {
 	before := m.fileIndex
 
 	// y=3 is the sidebar's top border, not a file row.
-	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 3, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 3, Button: tea.MouseLeft})
 	m2 := mm.(model)
 	if m2.fileIndex != before {
 		t.Fatalf("expected clicking the border to be a no-op, selection changed to %d", m2.fileIndex)
@@ -54,7 +54,7 @@ func TestClickInDiffPaneDoesNotChangeFileSelection(t *testing.T) {
 	m := threeSimpleFilesModel(t)
 	before := m.fileIndex
 
-	mm, _ := m.Update(tea.MouseMsg{X: 60, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 60, Y: 5, Button: tea.MouseLeft})
 	m2 := mm.(model)
 	if m2.fileIndex != before {
 		t.Fatalf("expected a click in the diff pane to leave file selection alone, got %d", m2.fileIndex)
@@ -64,13 +64,13 @@ func TestClickInDiffPaneDoesNotChangeFileSelection(t *testing.T) {
 func TestWheelOverSidebarChangesFileSelection(t *testing.T) {
 	m := threeSimpleFilesModel(t) // starts on a.go
 
-	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 5, Button: tea.MouseButtonWheelDown})
+	mm, _ := m.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
 	m2 := mm.(model)
 	if m2.files[m2.fileIndex].file.Path != "b.go" {
 		t.Fatalf("expected wheel-down over sidebar to move to b.go, got %q", m2.files[m2.fileIndex].file.Path)
 	}
 
-	mm, _ = m2.Update(tea.MouseMsg{X: 5, Y: 5, Button: tea.MouseButtonWheelUp})
+	mm, _ = m2.Update(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
 	m3 := mm.(model)
 	if m3.files[m3.fileIndex].file.Path != "a.go" {
 		t.Fatalf("expected wheel-up over sidebar to move back to a.go, got %q", m3.files[m3.fileIndex].file.Path)
@@ -82,7 +82,7 @@ func TestWheelOverDiffPaneMovesCursorNotFile(t *testing.T) {
 	beforeFile := m.fileIndex
 	beforeLine := m.lineIndex
 
-	mm, _ := m.Update(tea.MouseMsg{X: 60, Y: 5, Button: tea.MouseButtonWheelDown})
+	mm, _ := m.Update(tea.MouseWheelMsg{X: 60, Y: 5, Button: tea.MouseWheelDown})
 	m2 := mm.(model)
 	if m2.fileIndex != beforeFile {
 		t.Fatalf("expected wheel over diff pane to leave file selection alone, got %d", m2.fileIndex)
@@ -97,7 +97,7 @@ func TestMouseIgnoredOutsideNormalMode(t *testing.T) {
 	m.mode = modeHelp
 	before := m.fileIndex
 
-	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 6, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 5, Y: 6, Button: tea.MouseLeft})
 	m2 := mm.(model)
 	if m2.fileIndex != before || m2.mode != modeHelp {
 		t.Fatalf("expected mouse clicks to be ignored while help is open, got fileIndex=%d mode=%v", m2.fileIndex, m2.mode)
@@ -124,7 +124,7 @@ func TestClickSidebarRespectsScroll(t *testing.T) {
 	// Click the row that should now show file index `scroll` (the top of
 	// the visible window).
 	y := m.headerHeight() + 1 + 0
-	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 5, Y: y, Button: tea.MouseLeft})
 	m2 := mm.(model)
 	if m2.fileIndex != scroll {
 		t.Fatalf("expected clicking the top visible row to select file index %d, got %d", scroll, m2.fileIndex)

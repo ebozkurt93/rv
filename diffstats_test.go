@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestDiffStatsTotalsAcrossAllFiles(t *testing.T) {
@@ -79,7 +81,7 @@ func TestHeaderPathLineShowsSelectedFileStats(t *testing.T) {
 	}, Session{}, nil)
 	m.width, m.height = 100, 24
 
-	header := m.renderHeader()
+	header := ansi.Strip(m.renderHeader())
 	if !strings.Contains(header, "+2 -0") {
 		t.Fatalf("expected the selected file's own +2 -0 stat in the header, got %q", header)
 	}

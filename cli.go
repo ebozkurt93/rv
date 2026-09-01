@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // knownSubcommands are rv's own subcommands. Anything else in args[0] is
@@ -141,6 +141,6 @@ func runTUI(diffSpec []string) error {
 		m.setUntrackedDiffs(untracked)
 	}
 
-	_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err = tea.NewProgram(m).Run()
 	return err
 }

@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -50,7 +52,14 @@ var (
 	borderOverheadH = 2
 )
 
-func (m model) View() string {
+func (m model) View() tea.View {
+	view := tea.NewView(m.viewContent())
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
+}
+
+func (m model) viewContent() string {
 	header := m.renderHeader()
 
 	if m.mode == modeHelp {
@@ -254,13 +263,13 @@ func fitLine(s string, width int) string {
 // on — the tint hexes are fixed truecolor values (see syntax.go), not one
 // of the basic 16 ANSI colors, so a profile downgrade would otherwise shift
 // this to a visibly different color than the text next to it.
-func fitLineWithBackground(s string, width int, bg lipgloss.Color) string {
+func fitLineWithBackground(s string, width int, bg color.Color) string {
 	if width <= 0 {
 		return ""
 	}
 	s = ansi.Truncate(s, width, "…")
-	c := chroma.MustParseColour(string(bg))
-	bgEscape := fmt.Sprintf("\033[48;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+	r, g, b, _ := bg.RGBA()
+	bgEscape := fmt.Sprintf("\033[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
 	pad := ""
 	if w := ansi.StringWidth(s); w < width {
 		// bgEscape again here, not just up front — s's own last token
@@ -477,23 +486,23 @@ func renderBorderedRaw(innerW int, lines []string) string {
 // baked into that row's syntax-highlighted text, and if so, which color.
 // The cursor row's tint takes priority over its diff-status tint, matching
 // renderLine's own precedence.
-func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRowIdx int) (lipgloss.Color, bool) {
+func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRowIdx int) (color.Color, bool) {
 	if idx < 0 || idx >= len(rowFor) {
-		return "", false
+		return nil, false
 	}
 	if !mainLine[idx] {
-		return "", false
+		return nil, false
 	}
 	origin := rowFor[idx]
 	if origin < 0 || origin >= len(rows) {
-		return "", false
+		return nil, false
 	}
 	if origin == cursorRowIdx {
 		return bgCursor, true
 	}
 	row := rows[origin]
 	if row.kind != rowLine {
-		return "", false
+		return nil, false
 	}
 	switch row.line.Kind {
 	case LineAdded:
@@ -501,7 +510,7 @@ func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRow
 	case LineRemoved:
 		return bgRemoved, true
 	default:
-		return "", false
+		return nil, false
 	}
 }
 
@@ -805,9 +814,9 @@ func (m model) renderCommentEditor() string {
 // that distinction matters here).
 func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, cursor bool) string {
 	prefix := " "
-	prefixFg := lipgloss.Color("")
+	var prefixFg color.Color
 	fmtr := syntaxContextFmt
-	bg := lipgloss.Color("")
+	var bg color.Color
 	switch l.Kind {
 	case LineAdded:
 		prefix = "+"
@@ -830,9 +839,9 @@ func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, curs
 	// syntax-highlighted content's truecolor tint exactly — see
 	// tintBgEscape's doc comment for why a lipgloss-rendered segment can't
 	// be trusted to land on the same shade.
-	renderTinted := func(text string, fg lipgloss.Color) string {
-		if bg == "" {
-			if fg == "" {
+	renderTinted := func(text string, fg color.Color) string {
+		if bg == nil {
+			if fg == nil {
 				return lipgloss.NewStyle().Render(text)
 			}
 			return lipgloss.NewStyle().Foreground(fg).Render(text)

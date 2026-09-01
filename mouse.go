@@ -1,6 +1,6 @@
 package main
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 // headerHeight is how many lines renderHeader actually produces — 2 (title
 // + rule) with no files loaded, 3 (title + rule + selected-path) once
@@ -25,32 +25,35 @@ func (m *model) handleMouse(msg tea.MouseMsg) {
 		return
 	}
 
-	overSidebar := !m.sidebarHidden && msg.X < m.sidebarWidth()
+	mouse := msg.Mouse()
+	overSidebar := !m.sidebarHidden && mouse.X < m.sidebarWidth()
 
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		if overSidebar {
-			m.selectVisibleFile(-1)
-		} else {
-			m.moveCursor(-3)
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		switch mouse.Button {
+		case tea.MouseWheelUp:
+			if overSidebar {
+				m.selectVisibleFile(-1)
+			} else {
+				m.moveCursor(-3)
+			}
+		case tea.MouseWheelDown:
+			if overSidebar {
+				m.selectVisibleFile(1)
+			} else {
+				m.moveCursor(3)
+			}
 		}
 		return
-	case tea.MouseButtonWheelDown:
-		if overSidebar {
-			m.selectVisibleFile(1)
-		} else {
-			m.moveCursor(3)
+	case tea.MouseClickMsg:
+		if mouse.Button != tea.MouseLeft {
+			return
 		}
-		return
-	}
-
-	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
-		return
-	}
-	if overSidebar {
-		m.clickSidebarRow(msg.Y)
-	} else {
-		m.clickDiffRow(msg.Y)
+		if overSidebar {
+			m.clickSidebarRow(mouse.Y)
+		} else {
+			m.clickDiffRow(mouse.Y)
+		}
 	}
 }
 

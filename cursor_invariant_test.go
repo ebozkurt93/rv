@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // assertNotOnHeader is the invariant every test in this file checks: the
@@ -71,11 +71,11 @@ func TestCursorNeverOnHeaderAfterFileSwitch(t *testing.T) {
 		fileDiffWithHunks("b.go", 4),
 	}, Session{}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m2 := mm.(model)
 	assertNotOnHeader(t, m2, "tab (next file)")
 
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	m3 := mm.(model)
 	assertNotOnHeader(t, m3, "shift+tab (prev file)")
 }

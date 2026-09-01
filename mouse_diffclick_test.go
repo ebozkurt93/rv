@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Coordinates verified against a real rendered frame for this exact
@@ -15,7 +15,7 @@ func TestClickDiffLineFocusesThatRow(t *testing.T) {
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 5)}, Session{}, nil)
 	m.width, m.height = 100, 24
 
-	mm, _ := m.Update(tea.MouseMsg{X: 60, Y: 7, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 60, Y: 7, Button: tea.MouseLeft})
 	m2 := mm.(model)
 
 	line, ok := m2.currentLine()
@@ -31,7 +31,7 @@ func TestClickDiffHunkHeaderSnapsToNearestContentRow(t *testing.T) {
 	m.lineIndex = 4 // deep into the 2nd hunk, so the click is a real move
 
 	// y=4 is the (first) hunk header's screen row.
-	mm, _ := m.Update(tea.MouseMsg{X: 60, Y: 4, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ := m.Update(tea.MouseClickMsg{X: 60, Y: 4, Button: tea.MouseLeft})
 	m2 := mm.(model)
 
 	assertNotOnHeader(t, m2, "clicking a hunk header")
@@ -53,7 +53,7 @@ func TestClickDiffLineWithWrapFocusesCorrectRowRegardlessOfWhichSubLine(t *testi
 	}}}
 	m := newModel("/repo", []FileDiff{fd}, Session{}, nil)
 	m.width, m.height = 60, 24
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")}) // enable wrap
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'w', Text: "w"}) // enable wrap
 	m = mm.(model)
 
 	lines, _, rowFor := m.buildDiffLines(m.width - m.diffPaneSidebarWidth() - borderOverheadW)
@@ -77,7 +77,7 @@ func TestClickDiffLineWithWrapFocusesCorrectRowRegardlessOfWhichSubLine(t *testi
 
 	y := m.headerHeight() + 1 + subLineIdx
 	// X must land in the diff pane, not the sidebar.
-	mm, _ = m.Update(tea.MouseMsg{X: m.sidebarWidth() + 2, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	mm, _ = m.Update(tea.MouseClickMsg{X: m.sidebarWidth() + 2, Y: y, Button: tea.MouseLeft})
 	m2 := mm.(model)
 
 	line, ok := m2.currentLine()

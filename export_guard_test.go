@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestExportNoOpsWhenNoComments(t *testing.T) {
@@ -13,7 +13,7 @@ func TestExportNoOpsWhenNoComments(t *testing.T) {
 	repo := "/repo"
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, Session{RepoRoot: repo}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	m2 := mm.(model)
 
 	if m2.err != nil {
@@ -31,7 +31,7 @@ func TestCopyMarkdownNoOpsWhenNoComments(t *testing.T) {
 	withTempHome(t)
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m2 := mm.(model)
 
 	if m2.status != "nothing to copy — no comments yet" {
@@ -43,7 +43,7 @@ func TestCopyJSONNoOpsWhenNoComments(t *testing.T) {
 	withTempHome(t)
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Y")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
 	m2 := mm.(model)
 
 	if m2.status != "nothing to copy — no comments yet" {
@@ -60,7 +60,7 @@ func TestExportStillWorksWithComments(t *testing.T) {
 	}}
 	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	m2 := mm.(model)
 
 	if m2.err != nil {

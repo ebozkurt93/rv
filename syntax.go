@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"os"
 	"strconv"
@@ -11,7 +12,8 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"charm.land/lipgloss/v2"
 )
 
 // baseSyntaxStyle is the chroma style whose per-token-type colors get
@@ -86,7 +88,7 @@ var (
 	// gutter, the +/-/cursor prefix, and fitLineWithBackground's padding —
 	// everything around the syntax-highlighted text needs to match it
 	// exactly or the tint would visibly stop short of the row's edges.
-	bgAdded, bgRemoved, bgCursor lipgloss.Color
+	bgAdded, bgRemoved, bgCursor color.Color
 )
 
 func init() {
@@ -109,9 +111,9 @@ func init() {
 // fitLineWithBackground), so a lipgloss-rendered segment could otherwise
 // land on a visibly different shade than the syntax-highlighted text right
 // next to it in the same row.
-func tintBgEscape(bg lipgloss.Color) string {
-	c := chroma.MustParseColour(string(bg))
-	return fmt.Sprintf("\033[48;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+func tintBgEscape(bg color.Color) string {
+	r, g, b, _ := bg.RGBA()
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
 }
 
 // ansiFgEscape converts one of rv's basic-16-color lipgloss.Color values
@@ -119,11 +121,12 @@ func tintBgEscape(bg lipgloss.Color) string {
 // standard split — normal colors 0-7 are 30-37, bright colors 8-15 are
 // 90-97 — so it can be combined with tintBgEscape into one manually-built
 // escape sequence instead of going through lipgloss (see tintBgEscape).
-func ansiFgEscape(c lipgloss.Color) string {
-	idx, err := strconv.Atoi(string(c))
-	if err != nil {
+func ansiFgEscape(c color.Color) string {
+	bc, ok := c.(ansi.BasicColor)
+	if !ok {
 		return ""
 	}
+	idx := int(bc)
 	if idx < 8 {
 		return fmt.Sprintf("\033[%dm", 30+idx)
 	}
@@ -155,7 +158,20 @@ func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string)
 	if err := fmtr.Format(&buf, syntaxContextStyle, iterator); err != nil {
 		return content
 	}
-	return buf.String()
+	// Some lexers' comment rules match through end-of-line, so tokenising a
+	// single line with no trailing "\n" (every diff line, always exactly one
+	// line) can still emit one anyway — e.g. a "//" comment as the line's
+	// last token, with the "\n" baked into that token's own Value. Left in,
+	// that literal newline splits renderLine's return value across two
+	// physical terminal rows once boxed up, which shifts the panel's right
+	// border onto a phantom row below it (only visible in wrap mode, since
+	// unwrapped rows get silently cut short by fitLine's truncation
+	// instead). Stripped outright rather than trimmed from the end only —
+	// tintedFormatter (see below) writes its per-token reset code right
+	// after the token's own Value, so the "\n" ends up before that reset,
+	// not at the very end of the buffer. content itself never legitimately
+	// contains one.
+	return strings.ReplaceAll(buf.String(), "\n", "")
 }
 
 // ansi16 is chroma's own 16-color TTY table (see its formatters/

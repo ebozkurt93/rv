@@ -5,9 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/termenv"
 )
 
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
@@ -60,9 +58,6 @@ func TestTintedFormatterFallsBackWhenTokenColorLacksContrast(t *testing.T) {
 }
 
 func TestGutterMatchesPrefixColor(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.ANSI)
-	defer lipgloss.SetColorProfile(termenv.Ascii)
-
 	old, new := 1, 1
 	added := renderLine(pickLexer("a.go"), Line{Kind: LineAdded, Content: "x", NewLine: &new}, true, 1, false)
 	removed := renderLine(pickLexer("a.go"), Line{Kind: LineRemoved, Content: "x", OldLine: &old}, true, 1, false)
@@ -97,9 +92,6 @@ func TestRenderLineCursorStyleTakesPriorityOverDiffStatus(t *testing.T) {
 // reply/editor lines attached under a row must NOT inherit that row's tint
 // (they never had it baked into their own text).
 func TestRowBackgroundTintsFullRowWidth(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.ANSI)
-	defer lipgloss.SetColorProfile(termenv.Ascii)
-
 	old, new := 2, 2
 	fd := FileDiff{
 		Path:   "main.go",
@@ -217,7 +209,6 @@ func TestRenderLineExpandsTabsBeforeMeasuringWidth(t *testing.T) {
 // every line's trailing padding — must carry the tint.
 func TestWrappedTintedLineFullyCoversBothPhysicalLines(t *testing.T) {
 	withTempHome(t)
-	lipgloss.SetColorProfile(termenv.TrueColor)
 
 	new1 := 1
 	fd := FileDiff{

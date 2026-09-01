@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestFileDiffHashStableAndSensitiveToContent(t *testing.T) {
@@ -28,13 +28,13 @@ func TestToggleCurrentFileReviewedMarksAndUnmarks(t *testing.T) {
 		t.Fatal("expected not reviewed initially")
 	}
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
 	if !isFileReviewed(m2.session, fd) {
 		t.Fatal("expected reviewed after v")
 	}
 
-	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	mm, _ = m2.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m3 := mm.(model)
 	if isFileReviewed(m3.session, fd) {
 		t.Fatal("expected un-reviewed after pressing v again")
@@ -47,7 +47,7 @@ func TestFileChangeAutomaticallyUnreviewsIt(t *testing.T) {
 	fd := fileDiffWithLines("a.go", 5)
 	m := newModel(repo, []FileDiff{fd}, Session{}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
 	if !isFileReviewed(m2.session, fd) {
 		t.Fatal("expected reviewed")
@@ -66,7 +66,7 @@ func TestToggleReviewedPersistsAcrossReload(t *testing.T) {
 	fd := fileDiffWithLines("a.go", 5)
 	m := newModel(repo, []FileDiff{fd}, Session{}, nil)
 
-	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
 	if !isFileReviewed(m2.session, fd) {
 		t.Fatal("expected reviewed")
