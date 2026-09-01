@@ -703,25 +703,22 @@ func (m model) renderHelp() string {
 		Render(strings.Join(window, "\n"))
 }
 
-// renderCommentEditor is the inline "leave a comment" box shown directly
+// renderCommentEditor is the inline "leave a comment" row shown directly
 // beneath the line it will be anchored to, rather than in the footer, so the
-// comment stays visually attached to the code it's about.
-
+// comment stays visually attached to the code it's about. Styled to match
+// renderComment/renderReply (same indent/prefix convention, no border) —
+// it's a comment that just hasn't been submitted yet, not a modal dialog.
 func (m model) renderCommentEditor() string {
-	width := m.width - m.diffPaneSidebarWidth() - borderOverheadW - 4
+	width := m.width - m.diffPaneSidebarWidth() - borderOverheadW
 	if width < 10 {
 		width = 10
 	}
-	label := "comment: "
+	prefix := "  ▏✎ "
 	// Keep the tail of what's typed visible (not the start) as input grows
-	// past the box — and truncate before rendering, not after, since Width()
+	// past the row — and truncate before rendering, not after, since Width()
 	// would otherwise wrap rather than clip an overlong line.
-	input := truncateKeepingTail(m.input, width-2-lipgloss.Width(label)-1)
-	style := lipgloss.NewStyle().
-		Border(panelBorder).
-		BorderForeground(colorAccent).
-		Padding(0, 1)
-	return style.Render(styleComment.Render(label) + input + "█")
+	input := truncateKeepingTail(m.input, width-lipgloss.Width(prefix)-1)
+	return styleComment.Render(prefix + input + "█")
 }
 
 // renderLine renders one diff line's gutter + prefix + syntax-highlighted

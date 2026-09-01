@@ -90,3 +90,27 @@ func TestHelpOverlayScrollsPastOneScreen(t *testing.T) {
 		t.Fatalf("expected 'k' to scroll back up by 1, got helpScroll=%d", m3.helpScroll)
 	}
 }
+
+// TestCommentEditorHasNoBorder guards the fix for "comment editor shouldn't
+// be a bordered box" — it should read as an inline row matching
+// renderComment/renderReply's own "  ▏..." indent convention, not a boxed
+// dialog with its own border characters.
+func TestCommentEditorHasNoBorder(t *testing.T) {
+	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{}, nil)
+	m.width, m.height = 100, 24
+	m.mode = modeComment
+	m.input = "looks good"
+
+	out := m.renderCommentEditor()
+	for _, borderChar := range []string{panelBorder.TopLeft, panelBorder.Left} {
+		if strings.Contains(out, borderChar) {
+			t.Fatalf("expected no border characters in the comment editor, got %q", out)
+		}
+	}
+	if !strings.Contains(out, "▏") {
+		t.Fatalf("expected the same '▏' indent convention as renderComment/renderReply, got %q", out)
+	}
+	if !strings.Contains(out, "looks good") {
+		t.Fatalf("expected the typed input to appear in the rendered editor, got %q", out)
+	}
+}
