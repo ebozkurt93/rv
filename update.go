@@ -41,6 +41,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateComment(msg)
 		case modeHelp:
 			return m.updateHelp(msg)
+		case modeSearch:
+			return m.updateSearch(msg)
 		default:
 			return m.updateNormal(msg)
 		}
@@ -54,6 +56,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if keyMatches(msg, m.keys.Help) || keyMatches(msg, m.keys.Cancel) || keyMatches(msg, m.keys.Quit) {
 		m.mode = modeNormal
+	}
+	return m, nil
+}
+
+// updateSearch handles the sidebar file-name filter prompt (/). The sidebar
+// already shows live-filtered results as m.input changes (see
+// renderSidebar); Confirm commits m.input into the persisted m.fileFilter
+// and snaps the cursor onto a now-visible file, Cancel leaves m.fileFilter
+// exactly as it was before "/" was pressed.
+func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	k := m.keys
+	switch {
+	case keyMatches(msg, k.Cancel):
+		m.mode = modeNormal
+		m.input = ""
+	case keyMatches(msg, k.Confirm):
+		m.fileFilter = m.input
+		m.snapToVisibleFile()
+		m.mode = modeNormal
+	case keyMatches(msg, k.Backspace):
+		if len(m.input) > 0 {
+			r := []rune(m.input)
+			m.input = string(r[:len(r)-1])
+		}
+	default:
+		if msg.Type == tea.KeyRunes {
+			m.input += string(msg.Runes)
+		} else if msg.Type == tea.KeySpace {
+			m.input += " "
+		}
 	}
 	return m, nil
 }
@@ -154,9 +186,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-m.halfPageSize())
 
 	case keyMatches(msg, k.NextFile):
-		m.selectFile(m.fileIndex + 1)
+		m.selectVisibleFile(1)
 	case keyMatches(msg, k.PrevFile):
-		m.selectFile(m.fileIndex - 1)
+		m.selectVisibleFile(-1)
 
 	case keyMatches(msg, k.NextHunk):
 		for i := 0; i < count; i++ {
@@ -200,6 +232,10 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.Help):
 		m.mode = modeHelp
+
+	case keyMatches(msg, k.Search):
+		m.mode = modeSearch
+		m.input = m.fileFilter // editing starts from whatever filter is already active
 
 	case keyMatches(msg, k.Export):
 		if path, err := exportSession(m.repoRoot, m.session, m.diffFiles(), formatMarkdown); err != nil {
@@ -376,6 +412,47 @@ func (m *model) selectFile(idx int) {
 	}
 	m.fileIndex = idx
 	m.lineIndex = 0
+}
+
+// selectVisibleFile moves the selection by step among files that pass the
+// current fileFilter, rather than every file — so tab/[/] skip over
+// filtered-out entries instead of landing on one that isn't even shown.
+func (m *model) selectVisibleFile(step int) {
+	vis := m.visibleFileIndices(m.fileFilter)
+	if len(vis) == 0 {
+		return
+	}
+	pos := 0
+	for i, v := range vis {
+		if v == m.fileIndex {
+			pos = i
+			break
+		}
+	}
+	pos += step
+	if pos < 0 {
+		pos = 0
+	}
+	if pos >= len(vis) {
+		pos = len(vis) - 1
+	}
+	m.selectFile(vis[pos])
+}
+
+// snapToVisibleFile moves the selection onto the first file that passes the
+// current fileFilter, if the currently-selected one doesn't (e.g. right
+// after confirming a new filter, or after a refresh changes what's there).
+func (m *model) snapToVisibleFile() {
+	vis := m.visibleFileIndices(m.fileFilter)
+	if len(vis) == 0 {
+		return
+	}
+	for _, v := range vis {
+		if v == m.fileIndex {
+			return
+		}
+	}
+	m.selectFile(vis[0])
 }
 
 func (m *model) addCommentUnderCursor() {

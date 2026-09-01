@@ -75,7 +75,12 @@ func (m model) renderHeader() string {
 		}
 	}
 	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel())
-	counts := styleMuted.Render(fmt.Sprintf("%d file(s), %d comment(s), %d unresolved", len(m.files), total, unresolved))
+	countsText := fmt.Sprintf("%d file(s), %d comment(s), %d unresolved", len(m.files), total, unresolved)
+	if m.fileFilter != "" {
+		shown := len(m.visibleFileIndices(m.fileFilter))
+		countsText += fmt.Sprintf(" · filter %q (%d/%d shown)", m.fileFilter, shown, len(m.files))
+	}
+	counts := styleMuted.Render(countsText)
 
 	width := m.width
 	if width < 1 {
@@ -170,12 +175,25 @@ func (m model) renderSidebar() string {
 		innerH = 1
 	}
 
-	lines := make([]string, len(m.files))
-	for i, fr := range m.files {
-		lines[i] = renderSidebarRow(fr, i == m.fileIndex, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
+	// While actively typing a filter, show live results for the in-progress
+	// query even though it isn't committed to m.fileFilter yet.
+	query := m.fileFilter
+	if m.mode == modeSearch {
+		query = m.input
+	}
+	vis := m.visibleFileIndices(query)
+
+	lines := make([]string, len(vis))
+	cursorPos := 0
+	for pos, fi := range vis {
+		fr := m.files[fi]
+		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
+		if fi == m.fileIndex {
+			cursorPos = pos
+		}
 	}
 
-	scroll := clampScroll(m.fileIndex, len(lines), innerH)
+	scroll := clampScroll(cursorPos, len(lines), innerH)
 	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
 	for i, l := range window {
 		window[i] = fitLine(l, innerW)
@@ -331,6 +349,7 @@ var helpLines = []string{
 	"  n / N             next / prev unresolved comment (across files, wraps)",
 	"  tab / ]           next file",
 	"  shift+tab / [     prev file",
+	"  /                 filter files by name (enter confirms, esc cancels)",
 	"",
 	"Comments",
 	"  c                 add a comment on the line under the cursor",
@@ -423,6 +442,9 @@ func renderReply(r Reply) string {
 func (m model) renderFooter() string {
 	if m.mode == modeComment {
 		return styleMuted.Render("enter save · esc cancel")
+	}
+	if m.mode == modeSearch {
+		return "/" + m.input + "█"
 	}
 	if m.err != nil {
 		return styleError.Render("error: " + m.err.Error())

@@ -13,6 +13,7 @@ const (
 	modeNormal mode = iota
 	modeComment
 	modeHelp
+	modeSearch
 )
 
 // rowKind distinguishes the two kinds of row the diff pane can show.
@@ -57,8 +58,9 @@ type model struct {
 
 	width, height int
 
-	fileIndex int
-	lineIndex int // index into files[fileIndex].rows
+	fileIndex  int
+	lineIndex  int    // index into files[fileIndex].rows
+	fileFilter string // confirmed sidebar filter (substring, case-insensitive on path); "" means show everything
 
 	pendingG    bool   // mid-"gg" chord
 	countBuffer string // digits typed so far for a pending vim-style count, e.g. "10" of "10j"
@@ -145,6 +147,29 @@ func (m *model) setDiffFiles(diffFiles []FileDiff) {
 	if m.lineIndex < 0 {
 		m.lineIndex = 0
 	}
+	m.snapToVisibleFile()
+}
+
+// visibleFileIndices returns indices into m.files matching query
+// (case-insensitive substring on path) — or every index if query is empty.
+// Used both to render a filtered sidebar and to know which files ]/tab/[
+// may land the cursor on.
+func (m model) visibleFileIndices(query string) []int {
+	if query == "" {
+		idx := make([]int, len(m.files))
+		for i := range m.files {
+			idx[i] = i
+		}
+		return idx
+	}
+	q := strings.ToLower(query)
+	var idx []int
+	for i, fr := range m.files {
+		if strings.Contains(strings.ToLower(fr.file.Path), q) {
+			idx = append(idx, i)
+		}
+	}
+	return idx
 }
 
 // halfPageSize is how many rows ctrl+d/ctrl+u move, mirroring vim: half of

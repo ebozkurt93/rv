@@ -19,8 +19,14 @@ they land, with the commit that did it.
 - [x] **Cross-file comment navigation.** `n`/`N` jump to the next/prev
       *unresolved* comment across all files, in sidebar order, wrapping
       around at either end. Resolved comments are skipped.
-- [ ] **Search/filter.** No `/` to jump to a file by name or search diff
-      content. Sidebar just lists everything with no way to narrow it down.
+- [x] **Search/filter.** `/` opens a live-filtering sidebar search by file
+      path (case-insensitive substring). Enter commits it and snaps the
+      cursor onto a match; esc leaves whatever filter was already active
+      untouched. `tab`/`[`/`]` only move between visible (matching) files
+      while a filter is active. Scoped to file names, not diff content —
+      `n`/`N` were already claimed for cross-file comment navigation, so a
+      vim-style "/ searches content, n/N cycle matches" model would have
+      collided with that.
 - [x] **Help overlay.** `?` (or `esc`) opens/closes a full keybinding
       reference, grouped by Movement/Comments/Other. Footer trimmed back
       down to the essentials + "? help" now that it doesn't need to carry
