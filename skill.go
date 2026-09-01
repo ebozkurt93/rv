@@ -15,16 +15,24 @@ import (
 //go:embed skills/rv-review/SKILL.md
 var skillMD string
 
+// runSkill is deliberately agent-agnostic: it just hands back the
+// instructions, as a path or as raw text, and it's up to the user to point
+// whatever agent they're using at it (paste the text in, tell the agent to
+// read the path, etc) — it doesn't assume or install into any specific
+// agent's own config/skill directory.
 func runSkill(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: rv skill <path|print|install>")
+		return fmt.Errorf("usage: rv skill <path|print>")
 	}
 	switch args[0] {
 	case "path":
 		path := filepath.Join(cacheDir(), "rv-review-skill.md")
 		// Always rewritten so it stays in sync with whatever rv binary is
 		// currently installed, rather than going stale after an upgrade.
-		if err := writeSkillFile(path); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte(skillMD), 0o644); err != nil {
 			return err
 		}
 		fmt.Println(path)
@@ -32,22 +40,7 @@ func runSkill(args []string) error {
 	case "print":
 		fmt.Print(skillMD)
 		return nil
-	case "install":
-		path := filepath.Join(os.Getenv("HOME"), ".claude", "skills", "rv-review", "SKILL.md")
-		if err := writeSkillFile(path); err != nil {
-			return err
-		}
-		fmt.Println("installed to", path)
-		fmt.Println("Claude Code will pick it up as the \"rv-review\" skill in any project from now on.")
-		return nil
 	default:
-		return fmt.Errorf("unknown skill subcommand %q (want path|print|install)", args[0])
+		return fmt.Errorf("unknown skill subcommand %q (want path|print)", args[0])
 	}
-}
-
-func writeSkillFile(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(skillMD), 0o644)
 }

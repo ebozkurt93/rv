@@ -1,11 +1,6 @@
----
-name: rv-review
-description: Address code review feedback left in the rv local review tool — list unresolved comments, fix each issue, and reply/resolve. Use when the user asks to check rv comments, address rv feedback, "see what rv says", or mentions they've left comments in rv for you.
----
+# rv review — instructions for a coding agent
 
-# rv review
-
-`rv` is a local git-diff review tool the user runs in a terminal alongside you. They review your working-tree changes there and leave inline comments anchored to specific lines; your job is to read those comments, fix the code, and reply.
+`rv` is a local git-diff review tool the user runs in a terminal alongside you. They review your working-tree changes there and leave inline comments anchored to specific lines. When the user says something like "check rv comments," "address the rv feedback," or "see what rv says," follow the loop below: read those comments, fix the code, and reply.
 
 ## Loop
 
