@@ -133,11 +133,9 @@ they land, with the commit that did it.
       focus row mapping (both currently assume one unified column). Wanted;
       not started — needs its own scoped pass rather than being folded into
       something else.
-- [ ] **Comment editor shouldn't be a bordered box.** The inline "leave a
-      comment" widget (renderCommentEditor) currently draws its own small
-      rounded-border box under the line — wanted instead: something that
-      doesn't look like a boxed dialog (likely a plain inline row matching
-      how existing comments/replies already render, no border).
+- [x] **Comment editor shouldn't be a bordered box.** renderCommentEditor
+      now renders as a plain "  ▏✎ ..." inline row matching
+      renderComment/renderReply's own indent convention, no border.
 - [x] **`?` help overlay needs to scroll.** `j`/`k`/`ctrl+d`/`ctrl+u` scroll
       a window over the flattened help lines (`helpScroll`, reset each time
       the overlay opens), clamped at either end — entries past one screen's
