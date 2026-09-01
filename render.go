@@ -673,6 +673,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
 		{keys: k.ToggleReviewed, desc: "mark/unmark the current file reviewed (auto-clears if it changes)"},
+		{keys: k.ClearSession, desc: "clear all comments and reviewed marks for this session (asks to confirm)"},
 		{section: "Display"},
 		{keys: k.ToggleSidebar, desc: "show/hide the sidebar"},
 		{keys: k.ToggleLineNumbers, desc: "show/hide line numbers"},
@@ -976,6 +977,9 @@ func (m model) renderFooter() string {
 	}
 	if m.mode == modeConfirmDelete {
 		return styleError.Render("delete this comment? y/n")
+	}
+	if m.mode == modeConfirmClearSession {
+		return styleError.Render(fmt.Sprintf("clear all %d comment(s) and reviewed marks for this session? y/n", len(m.session.Comments)))
 	}
 	if m.err != nil {
 		return styleError.Render("error: " + m.err.Error())

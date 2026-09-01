@@ -17,6 +17,7 @@ const (
 	modeHelp
 	modeSearch
 	modeConfirmDelete
+	modeConfirmClearSession
 )
 
 // rowKind distinguishes the two kinds of row the diff pane can show.

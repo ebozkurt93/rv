@@ -66,6 +66,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSearch(msg)
 		case modeConfirmDelete:
 			return m.updateConfirmDelete(msg)
+		case modeConfirmClearSession:
+			return m.updateConfirmClearSession(msg)
 		default:
 			return m.updateNormal(msg)
 		}
@@ -151,6 +153,34 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 	}
 	return m, nil
+}
+
+// updateConfirmClearSession handles the "clear all comments and reviewed
+// marks for this session? y/n" prompt — wiping every comment in the repo's
+// session is destructive and easy to trigger by accident, so like deleting
+// a single comment it gets a confirmation rather than firing immediately.
+func (m model) updateConfirmClearSession(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		m.clearSession()
+		m.mode = modeNormal
+	case "n", "N", "esc":
+		m.mode = modeNormal
+	}
+	return m, nil
+}
+
+// clearSession wipes every comment and reviewed-file mark for the current
+// repo's session — useful for anyone repeatedly reviewing diffs against the
+// same working directory, where leftover comments from a previous review
+// would otherwise keep piling up (see keys.ClearSession).
+func (m *model) clearSession() {
+	m.mutateSession(func(s Session) (Session, error) {
+		s.Comments = nil
+		s.Reviewed = nil
+		return s, nil
+	})
+	m.status = "session cleared"
 }
 
 // persistUIPrefs saves the model's current display prefs (sidebar
@@ -323,6 +353,11 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.DeleteComment):
 		if len(m.commentsForCurrentLine()) > 0 {
 			m.mode = modeConfirmDelete
+		}
+
+	case keyMatches(msg, k.ClearSession):
+		if len(m.session.Comments) > 0 || len(m.session.Reviewed) > 0 {
+			m.mode = modeConfirmClearSession
 		}
 
 	case keyMatches(msg, k.ToggleResolved):

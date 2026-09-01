@@ -111,6 +111,53 @@ func TestDeleteCommentRequiresConfirmation(t *testing.T) {
 	}
 }
 
+// TestClearSessionRequiresConfirmation guards the keybinding to wipe a
+// repo's whole session (comments + reviewed marks) — useful when
+// repeatedly reviewing against the same working directory and leftover
+// comments from a previous pass would otherwise keep piling up. Destructive
+// and easy to trigger by accident, so it asks to confirm first, same
+// pattern as deleting a single comment.
+func TestClearSessionRequiresConfirmation(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	repo := "/repo"
+	must(t, saveSession(repo, Session{RepoRoot: repo, Comments: []Comment{
+		{ID: "c_1", File: "a.go", NewLine: &n, Body: "x"},
+	}, Reviewed: map[string]string{"a.go": "somehash"}}))
+	session, err := loadSession(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	m2 := mm.(model)
+	if m2.mode != modeConfirmClearSession {
+		t.Fatalf("expected D to open the confirm-clear prompt, got mode=%v", m2.mode)
+	}
+	if len(m2.session.Comments) != 1 || len(m2.session.Reviewed) != 1 {
+		t.Fatal("expected nothing cleared yet, pending confirmation")
+	}
+
+	// 'n' cancels without clearing.
+	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	m3 := mm.(model)
+	if m3.mode != modeNormal || len(m3.session.Comments) != 1 {
+		t.Fatalf("expected cancel to leave the session alone, got mode=%v comments=%d", m3.mode, len(m3.session.Comments))
+	}
+
+	// 'D' then 'y' actually clears everything.
+	mm, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	m4 := mm.(model)
+	mm, _ = m4.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	m5 := mm.(model)
+	if m5.mode != modeNormal || len(m5.session.Comments) != 0 || len(m5.session.Reviewed) != 0 {
+		t.Fatalf("expected 'y' to clear the session, got mode=%v comments=%d reviewed=%d",
+			m5.mode, len(m5.session.Comments), len(m5.session.Reviewed))
+	}
+}
+
 func TestWrapLineSplitsAtWidth(t *testing.T) {
 	got := wrapLine("aaaa bbbb cccc", 5)
 	if len(got) < 2 {
