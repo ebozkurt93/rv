@@ -74,13 +74,18 @@ they land, with the commit that did it.
       file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.
 - [x] **Syntax highlighting.** Diff lines run through chroma (lexer picked
-      per file, cached on fileRows) and format via `formatters.TTY16`, so
-      hues still reduce to the basic 16 ANSI colors like the rest of `rv`.
-      Added/removed/cursor tints are baked directly into the chroma style
-      per token (not applied as an outer wrap — chroma resets after every
-      token, same nesting hazard as lipgloss) so foreground syntax color and
-      background tint coexist per Hunk-style rendering, rather than solid
-      green/red lines.
+      per file, cached on fileRows). Token foreground colors still reduce to
+      the basic 16 ANSI colors (`nearestANSI16`, same Lab-distance metric as
+      `formatters.TTY16`) so they follow the terminal theme like the rest of
+      `rv`. Added/removed/cursor row backgrounds are a fixed, subtle
+      truecolor tint instead (`tintedFormatter`, baked per-token like the
+      foreground — not an outer wrap, since chroma resets after every
+      token) — the basic 16-color palette has no "dark green," only fully
+      saturated "green," so reducing backgrounds to it the same way as
+      foregrounds made every added/removed line look like a neon
+      highlighter. Dark/light tint set is picked via a cheap `$COLORFGBG`
+      guess rather than a live terminal background query, which can hang
+      for seconds (`OSCTimeout`) on a terminal that never answers it.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.

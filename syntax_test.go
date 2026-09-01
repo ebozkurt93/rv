@@ -10,7 +10,7 @@ import (
 
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxContextStyle, "func main() {}")
+	out := highlightContent(lexer, syntaxContextFmt, "func main() {}")
 	if out == "func main() {}" {
 		t.Fatalf("expected ANSI-highlighted output, got plain text back: %q", out)
 	}
@@ -18,9 +18,17 @@ func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 
 func TestHighlightContentFallsBackOnFallbackLexer(t *testing.T) {
 	lexer := pickLexer("no-such-extension.zzz")
-	out := highlightContent(lexer, syntaxContextStyle, "plain text")
+	out := highlightContent(lexer, syntaxContextFmt, "plain text")
 	if !strings.Contains(out, "plain text") {
 		t.Fatalf("expected fallback lexer to still round-trip the content, got %q", out)
+	}
+}
+
+func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
+	lexer := pickLexer("a.go")
+	out := highlightContent(lexer, syntaxAddedFmt, "func main() {}")
+	if !strings.Contains(out, "\033[48;2;") {
+		t.Fatalf("expected a truecolor background escape in every token, got %q", out)
 	}
 }
 
@@ -56,13 +64,13 @@ func TestRowBackgroundTintsFullRowWidth(t *testing.T) {
 	rows := flattenFile(fd).rows // rows[0] is the hunk header; content starts at rows[1]
 
 	bg, tinted := rowBackground(rows, []int{1}, []bool{true}, 0, -1)
-	if !tinted || bg != lipgloss.Color("1") {
-		t.Fatalf("expected removed row tinted red, got bg=%v tinted=%v", bg, tinted)
+	if !tinted || bg != bgRemoved {
+		t.Fatalf("expected removed row tinted %v, got bg=%v tinted=%v", bgRemoved, bg, tinted)
 	}
 
 	bg, tinted = rowBackground(rows, []int{2}, []bool{true}, 0, -1)
-	if !tinted || bg != lipgloss.Color("2") {
-		t.Fatalf("expected added row tinted green, got bg=%v tinted=%v", bg, tinted)
+	if !tinted || bg != bgAdded {
+		t.Fatalf("expected added row tinted %v, got bg=%v tinted=%v", bgAdded, bg, tinted)
 	}
 
 	_, tinted = rowBackground(rows, []int{3}, []bool{true}, 0, -1)
@@ -71,7 +79,7 @@ func TestRowBackgroundTintsFullRowWidth(t *testing.T) {
 	}
 
 	bg, tinted = rowBackground(rows, []int{3}, []bool{true}, 0, 3)
-	if !tinted || bg != lipgloss.Color("8") {
+	if !tinted || bg != bgCursor {
 		t.Fatalf("expected cursor row tinted regardless of diff status, got bg=%v tinted=%v", bg, tinted)
 	}
 
@@ -82,8 +90,8 @@ func TestRowBackgroundTintsFullRowWidth(t *testing.T) {
 		t.Fatalf("expected a non-main-line row (comment/reply/editor) to stay untinted")
 	}
 
-	padded := fitLineWithBackground("hi", 10, lipgloss.Color("1"))
-	if !strings.Contains(padded, "\x1b[41m") {
-		t.Fatalf("expected padding to carry the background escape code, got %q", padded)
+	padded := fitLineWithBackground("hi", 10, bgRemoved)
+	if !strings.Contains(padded, "\033[48;2;") {
+		t.Fatalf("expected padding to carry a truecolor background escape code, got %q", padded)
 	}
 }

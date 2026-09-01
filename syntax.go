@@ -1,12 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // baseSyntaxStyle is the chroma style whose per-token-type colors get
@@ -17,53 +22,82 @@ import (
 // for that slot, same as the rest of rv's coloring.
 const baseSyntaxStyle = "monokai"
 
-// Exact hex values from formatters' 16-color table (see chroma's
-// tty_indexed.go), chosen deliberately so each tint lands on a specific
-// ANSI slot rather than "nearest match to whatever I typed" — green(2) for
-// added, red(1) for removed, bright-black(8) for the cursor row (which
-// takes priority over a line's diff-status tint, matching how a "current
-// line" highlight in most editors overrides other line-level decoration).
-const (
-	tintAddedHex   = "#007f00"
-	tintRemovedHex = "#7f0000"
-	tintCursorHex  = "#555555"
+// Added/removed/cursor tints are a subtle wash rather than a solid color —
+// matching Hunk/GitHub's diff rendering. That rules out the basic 16-color
+// ANSI palette for backgrounds: every one of those 16 slots is a fully
+// saturated color (there's no "dark green" among them, only "green"), so
+// baking one in as a background always looks like a neon highlighter rather
+// than a tint. These are fixed truecolor hex values instead — picked once
+// for a dark-background terminal (darkTints) or a light one (lightTints),
+// chosen via a cheap COLORFGBG-based guess (see detectDarkBackground) since
+// there's no way to read the terminal's actual background color without a
+// live OSC query, which can hang for seconds on terminals that never
+// answer it. Token foreground colors are unaffected — those still reduce
+// to the user's actual 16-slot ANSI palette via nearestANSI16, same as
+// plain context lines.
+type tintSet struct {
+	added, removed, cursor string
+}
+
+var (
+	darkTints  = tintSet{added: "#1f3d2b", removed: "#3d1f24", cursor: "#333333"}
+	lightTints = tintSet{added: "#d9f0d9", removed: "#f5d9d9", cursor: "#e0e0e0"}
 )
+
+// detectDarkBackground guesses whether the terminal has a dark or light
+// background from $COLORFGBG ("fg;bg", set by many terminals — e.g.
+// iTerm2, rxvt, konsole), without ever querying the terminal live (an OSC
+// 11 "what's your background color" query can block for OSCTimeout==5s on
+// a terminal that doesn't answer it, which is a bad startup-latency trade
+// for a cosmetic tint). Defaults to dark, the far more common terminal
+// setup, when the variable is absent or unparseable.
+func detectDarkBackground() bool {
+	v := os.Getenv("COLORFGBG")
+	if v == "" {
+		return true
+	}
+	parts := strings.Split(v, ";")
+	bg, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return true
+	}
+	// Only the two canonical "light" ANSI slots count as light; every other
+	// index (including the accent colors) is treated as dark.
+	return bg != 7 && bg != 15
+}
+
+func activeTints() tintSet {
+	if detectDarkBackground() {
+		return darkTints
+	}
+	return lightTints
+}
 
 var (
 	syntaxContextStyle *chroma.Style
-	syntaxAddedStyle   *chroma.Style
-	syntaxRemovedStyle *chroma.Style
-	syntaxCursorStyle  *chroma.Style
+	syntaxContextFmt   chroma.Formatter = formatters.TTY16
+	syntaxAddedFmt     chroma.Formatter
+	syntaxRemovedFmt   chroma.Formatter
+	syntaxCursorFmt    chroma.Formatter
+
+	// bgAdded/bgRemoved/bgCursor are the same tint hex values baked into
+	// syntaxAddedFmt/syntaxRemovedFmt/syntaxCursorFmt, exposed as
+	// lipgloss.Colors so render.go can apply the identical tint to the
+	// gutter, the +/-/cursor prefix, and fitLineWithBackground's padding —
+	// everything around the syntax-highlighted text needs to match it
+	// exactly or the tint would visibly stop short of the row's edges.
+	bgAdded, bgRemoved, bgCursor lipgloss.Color
 )
 
 func init() {
-	base := styles.Get(baseSyntaxStyle)
-	syntaxContextStyle = base
-	syntaxAddedStyle = tintedStyle(base, tintAddedHex)
-	syntaxRemovedStyle = tintedStyle(base, tintRemovedHex)
-	syntaxCursorStyle = tintedStyle(base, tintCursorHex)
-}
-
-// tintedStyle returns a copy of base with the same per-token-type
-// foreground colors but a uniform background baked into every entry.
-// Baked in via chroma.StyleBuilder.Transform, not applied afterward by
-// wrapping the *formatted* output in an outer style — chroma's own
-// per-token formatting closes with a reset after every token (same as
-// lipgloss's Render does), so an outer wrap would get canceled by the
-// first token's reset, identical to the cursor-highlight nesting bug
-// elsewhere in this file. Baking the background into the style itself
-// means every token's own emitted escape sequence carries it, so there's
-// nothing to cancel.
-func tintedStyle(base *chroma.Style, bgHex string) *chroma.Style {
-	bg := chroma.MustParseColour(bgHex)
-	built, err := base.Builder().Transform(func(e chroma.StyleEntry) chroma.StyleEntry {
-		e.Background = bg
-		return e
-	}).Build()
-	if err != nil {
-		return base
-	}
-	return built
+	syntaxContextStyle = styles.Get(baseSyntaxStyle)
+	tints := activeTints()
+	syntaxAddedFmt = newTintedFormatter(tints.added)
+	syntaxRemovedFmt = newTintedFormatter(tints.removed)
+	syntaxCursorFmt = newTintedFormatter(tints.cursor)
+	bgAdded = lipgloss.Color(tints.added)
+	bgRemoved = lipgloss.Color(tints.removed)
+	bgCursor = lipgloss.Color(tints.cursor)
 }
 
 // pickLexer resolves which chroma lexer to use for path, once per file
@@ -77,18 +111,92 @@ func pickLexer(path string) chroma.Lexer {
 	return chroma.Coalesce(lexer)
 }
 
-// highlightContent tokenizes content with lexer and formats it through
-// formatters.TTY16 using style, returning ANSI-escaped text. Falls back to
-// plain content on any error (a lexer panic/failure shouldn't take the
-// whole diff pane down with it).
-func highlightContent(lexer chroma.Lexer, style *chroma.Style, content string) string {
+// highlightContent tokenizes content with lexer and formats it through fmt
+// (plain formatters.TTY16 for context lines, or a tintedFormatter for
+// added/removed/cursor lines — see renderLine), returning ANSI-escaped
+// text. Falls back to plain content on any error (a lexer panic/failure
+// shouldn't take the whole diff pane down with it).
+func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string) string {
 	iterator, err := lexer.Tokenise(nil, content)
 	if err != nil {
 		return content
 	}
 	var buf strings.Builder
-	if err := formatters.TTY16.Format(&buf, style, iterator); err != nil {
+	if err := fmtr.Format(&buf, syntaxContextStyle, iterator); err != nil {
 		return content
 	}
 	return buf.String()
+}
+
+// ansi16 is chroma's own 16-color TTY table (see its formatters/
+// tty_indexed.go), copied here because it's unexported there — needed so
+// tintedFormatter can emit the same theme-following 16-color foreground
+// codes as formatters.TTY16 while pairing them with a truecolor background
+// tint, which chroma's own formatters can't do (each only handles one
+// color depth for both fg and bg).
+var ansi16 = map[chroma.Colour]string{
+	chroma.MustParseColour("#000000"): "\033[30m", chroma.MustParseColour("#7f0000"): "\033[31m",
+	chroma.MustParseColour("#007f00"): "\033[32m", chroma.MustParseColour("#7f7fe0"): "\033[33m",
+	chroma.MustParseColour("#00007f"): "\033[34m", chroma.MustParseColour("#7f007f"): "\033[35m",
+	chroma.MustParseColour("#007f7f"): "\033[36m", chroma.MustParseColour("#e5e5e5"): "\033[37m",
+	chroma.MustParseColour("#555555"): "\033[90m", chroma.MustParseColour("#ff0000"): "\033[91m",
+	chroma.MustParseColour("#00ff00"): "\033[92m", chroma.MustParseColour("#ffff00"): "\033[93m",
+	chroma.MustParseColour("#0000ff"): "\033[94m", chroma.MustParseColour("#ff00ff"): "\033[95m",
+	chroma.MustParseColour("#00ffff"): "\033[96m", chroma.MustParseColour("#ffffff"): "\033[97m",
+}
+
+// nearestANSI16 finds the closest of chroma's 16 canonical colors to seeking
+// (Lab-space distance, same metric formatters.TTY16 uses internally) and
+// returns its escape code.
+func nearestANSI16(seeking chroma.Colour) string {
+	var closest chroma.Colour
+	best := -1.0
+	for candidate := range ansi16 {
+		d := candidate.Distance(seeking)
+		if best < 0 || d < best {
+			best = d
+			closest = candidate
+		}
+	}
+	return ansi16[closest]
+}
+
+// tintedFormatter renders each token's foreground reduced to the nearest of
+// the basic 16 ANSI colors (so it still follows the terminal theme, exactly
+// like formatters.TTY16), paired with a fixed truecolor background — baked
+// into every single token's own escape sequence, not applied as an outer
+// wrap. Chroma resets (\033[0m) after every token, so an outer wrap would
+// get canceled by the first token's reset; baking it in per-token means
+// there's nothing to cancel.
+type tintedFormatter struct {
+	bgEscape string
+}
+
+func newTintedFormatter(bgHex string) *tintedFormatter {
+	bg := chroma.MustParseColour(bgHex)
+	return &tintedFormatter{bgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue())}
+}
+
+func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iterator) error {
+	for token := it(); token != chroma.EOF; token = it() {
+		entry := style.Get(token.Type)
+		formatting := ""
+		if entry.Bold == chroma.Yes {
+			formatting += "\033[1m"
+		}
+		if entry.Underline == chroma.Yes {
+			formatting += "\033[4m"
+		}
+		if entry.Italic == chroma.Yes {
+			formatting += "\033[3m"
+		}
+		if entry.Colour.IsSet() {
+			formatting += nearestANSI16(entry.Colour)
+		}
+		formatting += f.bgEscape
+		io.WriteString(w, formatting)
+		io.WriteString(w, token.Value)
+		io.WriteString(w, "\033[0m")
+	}
+	return nil
 }

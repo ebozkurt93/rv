@@ -232,14 +232,21 @@ func fitLine(s string, width int) string {
 // tinted with bg instead of left plain — used for rows whose text already
 // carries a baked-in chroma background (added/removed/cursor tint, see
 // renderLine) so that tint visually spans the whole row instead of stopping
-// wherever the text happens to end.
+// wherever the text happens to end. bg is emitted as a raw truecolor escape
+// (not via lipgloss.Style) so the padding always matches the tint
+// tintedFormatter baked into the text exactly, regardless of what color
+// profile lipgloss's own terminal detection lands on — the tint hexes are
+// fixed truecolor values (see syntax.go), not one of the basic 16 ANSI
+// colors, so a profile downgrade would otherwise shift the padding to a
+// visibly different color than the text next to it.
 func fitLineWithBackground(s string, width int, bg lipgloss.Color) string {
 	if width <= 0 {
 		return ""
 	}
 	s = ansi.Truncate(s, width, "…")
 	if w := ansi.StringWidth(s); w < width {
-		s += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", width-w))
+		c := chroma.MustParseColour(string(bg))
+		s += fmt.Sprintf("\033[48;2;%d;%d;%dm%s\033[0m", c.Red(), c.Green(), c.Blue(), strings.Repeat(" ", width-w))
 	}
 	return s
 }
@@ -435,7 +442,7 @@ func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRow
 		return "", false
 	}
 	if origin == cursorRowIdx {
-		return lipgloss.Color("8"), true
+		return bgCursor, true
 	}
 	row := rows[origin]
 	if row.kind != rowLine {
@@ -443,9 +450,9 @@ func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRow
 	}
 	switch row.line.Kind {
 	case LineAdded:
-		return lipgloss.Color("2"), true
+		return bgAdded, true
 	case LineRemoved:
-		return lipgloss.Color("1"), true
+		return bgRemoved, true
 	default:
 		return "", false
 	}
@@ -658,23 +665,23 @@ func (m model) renderCommentEditor() string {
 func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, cursor bool) string {
 	prefix := " "
 	prefixStyle := lipgloss.NewStyle()
-	syntaxStyle := syntaxContextStyle
+	fmtr := syntaxContextFmt
 	switch l.Kind {
 	case LineAdded:
 		prefix = "+"
-		prefixStyle = styleAdded
-		syntaxStyle = syntaxAddedStyle
+		prefixStyle = styleAdded.Background(bgAdded)
+		fmtr = syntaxAddedFmt
 	case LineRemoved:
 		prefix = "-"
-		prefixStyle = styleRemoved
-		syntaxStyle = syntaxRemovedStyle
+		prefixStyle = styleRemoved.Background(bgRemoved)
+		fmtr = syntaxRemovedFmt
 	}
 	if cursor {
-		syntaxStyle = syntaxCursorStyle
-		prefixStyle = lipgloss.NewStyle().Background(lipgloss.Color("8"))
+		fmtr = syntaxCursorFmt
+		prefixStyle = prefixStyle.Background(bgCursor)
 	}
 
-	content := prefixStyle.Render(prefix) + highlightContent(lexer, syntaxStyle, l.Content)
+	content := prefixStyle.Render(prefix) + highlightContent(lexer, fmtr, l.Content)
 	if !showNumbers {
 		return content
 	}
