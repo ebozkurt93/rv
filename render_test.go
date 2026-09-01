@@ -94,6 +94,27 @@ func TestHelpOverlayScrollsPastOneScreen(t *testing.T) {
 	}
 }
 
+// TestMouseWheelScrollsHelpOverlay guards the mouse-wheel counterpart to
+// j/k/ctrl+d/ctrl+u — scrolling the help overlay shouldn't require a
+// keyboard.
+func TestMouseWheelScrollsHelpOverlay(t *testing.T) {
+	m := newModel("/repo", nil, Session{}, nil)
+	m.width, m.height = 80, 10
+	m.mode = modeHelp
+
+	mm, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown})
+	m2 := mm.(model)
+	if m2.helpScroll <= 0 {
+		t.Fatalf("expected wheel-down to scroll the help overlay down, got helpScroll=%d", m2.helpScroll)
+	}
+
+	mm, _ = m2.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp})
+	m3 := mm.(model)
+	if m3.helpScroll >= m2.helpScroll {
+		t.Fatalf("expected wheel-up to scroll back up, got helpScroll=%d (was %d)", m3.helpScroll, m2.helpScroll)
+	}
+}
+
 // TestCommentEditorHasNoBorder guards the fix for "comment editor shouldn't
 // be a bordered box" — it should read as an inline row matching
 // renderComment/renderReply's own "  │..." indent convention, not a boxed

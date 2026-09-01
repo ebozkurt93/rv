@@ -44,8 +44,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.MouseMsg:
-		if m.mode == modeNormal {
+		switch m.mode {
+		case modeNormal:
 			m.handleMouse(msg)
+		case modeHelp:
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m.scrollHelp(-3)
+			case tea.MouseButtonWheelDown:
+				m.scrollHelp(3)
+			}
 		}
 		return m, nil
 	case tea.KeyMsg:
@@ -76,26 +84,29 @@ func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.Help), keyMatches(msg, k.Cancel), keyMatches(msg, k.Quit):
 		m.mode = modeNormal
 	case keyMatches(msg, k.MoveDown):
-		m.helpScroll++
+		m.scrollHelp(1)
 	case keyMatches(msg, k.MoveUp):
-		if m.helpScroll > 0 {
-			m.helpScroll--
-		}
+		m.scrollHelp(-1)
 	case keyMatches(msg, k.HalfPageDown):
-		m.helpScroll += m.halfPageSize()
+		m.scrollHelp(m.halfPageSize())
 	case keyMatches(msg, k.HalfPageUp):
-		m.helpScroll -= m.halfPageSize()
-		if m.helpScroll < 0 {
-			m.helpScroll = 0
-		}
+		m.scrollHelp(-m.halfPageSize())
 	}
+	return m, nil
+}
+
+// scrollHelp adjusts m.helpScroll by delta (negative scrolls up), clamped
+// so it can't run past either end of helpLines() — shared by updateHelp's
+// keyboard handling and the mouse wheel (see handleMouse) so both paths
+// can't disagree about where the clamp is.
+func (m *model) scrollHelp(delta int) {
+	m.helpScroll += delta
 	if max := len(m.helpLines()) - (m.bodyHeight() - borderOverheadH); m.helpScroll > max {
 		m.helpScroll = max
 	}
 	if m.helpScroll < 0 {
 		m.helpScroll = 0
 	}
-	return m, nil
 }
 
 // updateSearch handles the sidebar file-name filter prompt (/). The sidebar
