@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/waigani/diffparser"
@@ -61,12 +62,86 @@ func (g gitVCS) RepoRoot() (string, error) {
 }
 
 // DiffSpec returns the effective spec, defaulting to "HEAD" (working tree
-// vs HEAD) when none was given.
+// vs HEAD) when none was given, and normalizing any case variant of the
+// word "head" within it to canonical "HEAD".
+//
+// This isn't cosmetic: on a case-insensitive filesystem (macOS's default),
+// git worktrees have their own reproducible footgun here. rev-parse's first
+// lookup strategy for a bare revision name x is the literal path
+// $GIT_DIR/x; a worktree's $GIT_DIR is the per-worktree
+// .git/worktrees/<name>/ directory, and on a case-insensitive filesystem
+// $GIT_DIR/head resolves to the same inode $GIT_DIR/HEAD *would* if it
+// existed there — except a worktree's real HEAD file lives one directory
+// up in the shared repo, so this lookup instead falls through to some
+// other candidate ref/object entirely. Confirmed against a real worktree:
+// `git rev-parse HEAD` and `git rev-parse head` returned two different
+// commits — "head" silently resolved to the wrong ref rather than erroring,
+// which is far worse than the "no diff" it presents as.
 func (g gitVCS) DiffSpec() []string {
-	if len(g.spec) == 0 {
-		return []string{"HEAD"}
+	spec := g.spec
+	if len(spec) == 0 {
+		spec = []string{"HEAD"}
 	}
-	return g.spec
+	out := make([]string, len(spec))
+	for i, s := range spec {
+		out[i] = normalizeHeadCasing(s)
+	}
+	return out
+}
+
+// rangeSepPattern splits a diff spec on git's range separators. Order
+// matters: alternation in Go's regexp is leftmost-first, so "\.\.\." must
+// come before "\.\." or a "..." range would only ever consume 2 of its 3
+// dots.
+var rangeSepPattern = regexp.MustCompile(`\.\.\.|\.\.`)
+
+// normalizeHeadCasing rewrites "head" to "HEAD" in s, but only where "head"
+// is truly standing in for the special ref — the whole base name of s or of
+// one side of a "a..b"/"a...b" range, optionally followed by a revision
+// suffix operator (~N, ^N, @{...}). A word-boundary regex isn't precise
+// enough here: "\bhead\b" also matches inside "feature-head" (a perfectly
+// legitimate, distinct branch name) since "-" counts as a boundary same as
+// "." does. Left alone entirely: flags (anything starting with "-"), and
+// any name where "head" is merely a prefix of something else, like
+// "headless" — there rest is "less", not empty or a suffix operator, so it
+// doesn't qualify.
+func normalizeHeadCasing(s string) string {
+	if strings.HasPrefix(s, "-") {
+		return s
+	}
+	parts := splitKeepSep(s, rangeSepPattern)
+	for i, p := range parts {
+		parts[i] = normalizeHeadBaseName(p)
+	}
+	return strings.Join(parts, "")
+}
+
+// splitKeepSep splits s on sep's matches, keeping each separator as its own
+// element interleaved between the parts it split — e.g. for the ".."/"..."
+// pattern, "head..main" -> ["head", "..", "main"].
+func splitKeepSep(s string, sep *regexp.Regexp) []string {
+	idx := sep.FindAllStringIndex(s, -1)
+	if len(idx) == 0 {
+		return []string{s}
+	}
+	var parts []string
+	last := 0
+	for _, m := range idx {
+		parts = append(parts, s[last:m[0]], s[m[0]:m[1]])
+		last = m[1]
+	}
+	return append(parts, s[last:])
+}
+
+func normalizeHeadBaseName(p string) string {
+	if len(p) < 4 || !strings.EqualFold(p[:4], "head") {
+		return p
+	}
+	rest := p[4:]
+	if rest == "" || strings.HasPrefix(rest, "~") || strings.HasPrefix(rest, "^") || strings.HasPrefix(rest, "@") {
+		return "HEAD" + rest
+	}
+	return p
 }
 
 func (g gitVCS) Diff() (string, error) {

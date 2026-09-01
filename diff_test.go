@@ -57,6 +57,56 @@ func TestGitVCSDiffSpecStagedPassedThrough(t *testing.T) {
 	}
 }
 
+func TestGitVCSDiffNormalizesLowercaseHead(t *testing.T) {
+	cases := [][2]string{
+		{"head", "HEAD"},
+		{"Head", "HEAD"},
+		{"head..main", "HEAD..main"},
+		{"main..head", "main..HEAD"},
+		{"head~3", "HEAD~3"},
+		{"head^2", "HEAD^2"},
+		{"head@{0}", "HEAD@{0}"},
+		{"head~2..main", "HEAD~2..main"},
+		{"head...main", "HEAD...main"},
+	}
+	for _, c := range cases {
+		runner := &fakeGitRunner{output: ""}
+		vcs := gitVCS{runner: runner, spec: []string{c[0]}}
+		if _, err := vcs.Diff(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := runner.calls[0][1]; got != c[1] {
+			t.Fatalf("normalizeHeadCasing(%q): got %q, want %q", c[0], got, c[1])
+		}
+	}
+}
+
+func TestGitVCSDiffLeavesSimilarNamesAlone(t *testing.T) {
+	// "head" as a substring of a larger ref name must not be touched — only
+	// the standalone word.
+	for _, spec := range []string{"ahead-of-main", "feature-head", "headless"} {
+		runner := &fakeGitRunner{output: ""}
+		vcs := gitVCS{runner: runner, spec: []string{spec}}
+		if _, err := vcs.Diff(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := runner.calls[0][1]; got != spec {
+			t.Fatalf("expected %q left untouched, got %q", spec, got)
+		}
+	}
+}
+
+func TestGitVCSDiffDoesNotNormalizeFlags(t *testing.T) {
+	runner := &fakeGitRunner{output: ""}
+	vcs := gitVCS{runner: runner, spec: []string{"--staged"}}
+	if _, err := vcs.Diff(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := runner.calls[0][1]; got != "--staged" {
+		t.Fatalf("expected flag left untouched, got %q", got)
+	}
+}
+
 func TestGitVCSRepoRoot(t *testing.T) {
 	runner := &fakeGitRunner{output: "/repo/root\n"}
 	vcs := gitVCS{runner: runner}

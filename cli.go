@@ -62,7 +62,13 @@ func runTUI(diffSpec []string) error {
 		return err
 	}
 
-	diffFiles, err := loadDiffFiles(diffSpec)
+	// Normalized once here so the header label (which reads m.diffSpec
+	// directly) shows exactly what's actually being run, rather than the
+	// raw user input gitVCS.DiffSpec() would otherwise silently correct
+	// only at the moment it shells out.
+	normalizedSpec := (gitVCS{spec: diffSpec}).DiffSpec()
+
+	diffFiles, err := loadDiffFiles(normalizedSpec)
 	if err != nil {
 		return fmt.Errorf("parsing diff: %w", err)
 	}
@@ -72,7 +78,7 @@ func runTUI(diffSpec []string) error {
 		return err
 	}
 
-	m := newModel(repoRoot, diffFiles, session, diffSpec)
+	m := newModel(repoRoot, diffFiles, session, normalizedSpec)
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
