@@ -98,3 +98,10 @@ they land, with the commit that did it.
       silently reattaches to a different, unrelated line that happens to
       land at the same number. No orphaned-comment indicator, no
       content-based matching. Worth fixing if this bites in practice.
+- [ ] **Split (side-by-side) view vs. current stacked/unified view.** Real
+      rendering feature, not a small toggle: needs old/new lines paired into
+      columns, handling unequal add/remove counts per hunk, a width
+      recalculation per column, and reworking wrap + the mouse click-to-
+      focus row mapping (both currently assume one unified column). Wanted;
+      not started — needs its own scoped pass rather than being folded into
+      something else.
