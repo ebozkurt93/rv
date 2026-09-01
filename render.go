@@ -126,7 +126,7 @@ func (m model) renderHeader() string {
 
 	added, removed := m.diffStats()
 	stats := styleAdded.Render(fmt.Sprintf("+%d", added)) + " " + styleRemoved.Render(fmt.Sprintf("-%d", removed))
-	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel()+" · ") + stats
+	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · "+m.diffLabel()+" · ") + stats
 	countsText := fmt.Sprintf("%d/%d file(s) reviewed, %d comment(s), %d unresolved", reviewedCount, len(m.files), total, unresolved)
 	if orphaned := m.orphanedCommentCount(); orphaned > 0 {
 		countsText += fmt.Sprintf(", %d orphaned", orphaned)
