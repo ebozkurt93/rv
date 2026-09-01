@@ -52,7 +52,6 @@ type model struct {
 
 	fileIndex int
 	lineIndex int // index into files[fileIndex].rows
-	scroll    int
 
 	pendingG    bool   // mid-"gg" chord
 	countBuffer string // digits typed so far for a pending vim-style count, e.g. "10" of "10j"
@@ -88,6 +87,17 @@ func (m model) currentRows() []diffRow {
 		return nil
 	}
 	return m.files[m.fileIndex].rows
+}
+
+// halfPageSize is how many rows ctrl+d/ctrl+u move, mirroring vim: half of
+// the diff pane's visible height (the same height math render.go uses to
+// size that panel).
+func (m model) halfPageSize() int {
+	h := m.bodyHeight() - borderOverheadH
+	if h < 2 {
+		return 1
+	}
+	return h / 2
 }
 
 // currentLine returns the Line under the cursor, if the cursor is on a

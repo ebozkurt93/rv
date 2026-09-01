@@ -36,7 +36,7 @@ var (
 
 	panelBorder = lipgloss.RoundedBorder()
 
-	sidebarWidth = 34
+	sidebarWidth = 44
 	// borderOverhead is how much a bordered+padded panel adds beyond its
 	// content width/height (1 col/row of border plus 1 col of horizontal
 	// padding on each side).
@@ -85,13 +85,22 @@ func (m model) renderHeader() string {
 		lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", gap), counts),
 	)
 	rule := lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", width))
-	return lipgloss.JoinVertical(lipgloss.Left, line, rule)
+
+	if len(m.files) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left, line, rule)
+	}
+
+	// The sidebar truncates long paths for space; show the selected file's
+	// full path here, where a whole terminal width is available for it.
+	selected := m.files[m.fileIndex].file.Path
+	path := fitLine(styleSelected.Render("▸ ")+selected, width)
+	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }
 
 // bodyHeight is the vertical space left for the sidebar+diff row after the
-// header and footer.
+// header (title + rule + selected-path lines) and footer.
 func (m model) bodyHeight() int {
-	h := m.height - 4 // 2 header lines + 1 footer line + slack
+	h := m.height - 5 // 3 header lines + 1 footer line + slack
 	if h < 3 {
 		h = 3
 	}

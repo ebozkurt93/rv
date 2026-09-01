@@ -44,8 +44,6 @@ func clipboardCmd() (*exec.Cmd, error) {
 			}
 		}
 		return nil, fmt.Errorf("no clipboard utility found (install wl-copy, xclip, or xsel)")
-	case "windows":
-		return exec.Command("clip"), nil
 	default:
 		return nil, fmt.Errorf("clipboard not supported on %s", runtime.GOOS)
 	}

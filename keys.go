@@ -10,6 +10,8 @@ type Keymap struct {
 	Quit           []string
 	MoveDown       []string
 	MoveUp         []string
+	HalfPageDown   []string
+	HalfPageUp     []string
 	NextFile       []string
 	PrevFile       []string
 	Top            []string // second half of "gg"
@@ -30,6 +32,8 @@ func defaultKeymap() Keymap {
 		Quit:           []string{"q", "ctrl+c"},
 		MoveDown:       []string{"j", "down"},
 		MoveUp:         []string{"k", "up"},
+		HalfPageDown:   []string{"ctrl+d"},
+		HalfPageUp:     []string{"ctrl+u"},
 		NextFile:       []string{"tab", "]"},
 		PrevFile:       []string{"shift+tab", "["},
 		Top:            []string{"g"},

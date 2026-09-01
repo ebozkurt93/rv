@@ -59,6 +59,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	wasPendingG := m.pendingG
 	m.pendingG = false
 	m.status = ""
+	m.err = nil
 
 	// "g" starts (or, if pendingG, completes) the "gg" chord — don't consume
 	// the count buffer on the first "g" or a count typed before it would be
@@ -77,6 +78,11 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(count)
 	case keyMatches(msg, k.MoveUp):
 		m.moveCursor(-count)
+
+	case keyMatches(msg, k.HalfPageDown):
+		m.moveCursor(m.halfPageSize())
+	case keyMatches(msg, k.HalfPageUp):
+		m.moveCursor(-m.halfPageSize())
 
 	case keyMatches(msg, k.NextFile):
 		m.selectFile(m.fileIndex + 1)
@@ -207,7 +213,6 @@ func (m *model) selectFile(idx int) {
 	}
 	m.fileIndex = idx
 	m.lineIndex = 0
-	m.scroll = 0
 }
 
 func (m *model) addCommentUnderCursor() {
@@ -260,19 +265,24 @@ func (m *model) toggleResolvedUnderCursor() {
 }
 
 // mutateSession runs fn under the on-disk session lock via withSession, then
-// reloads m.session from disk so the in-memory copy can never drift from
-// what's persisted.
+// adopts whatever it persisted as m.session — so the in-memory copy can
+// never drift from what's on disk, without a second, redundant read of the
+// file we just wrote under lock.
 func (m *model) mutateSession(fn func(Session) (Session, error)) {
-	if err := withSession(m.repoRoot, fn); err != nil {
-		m.err = err
-		return
-	}
-	s, err := loadSession(m.repoRoot)
+	var saved Session
+	err := withSession(m.repoRoot, func(s Session) (Session, error) {
+		next, err := fn(s)
+		if err != nil {
+			return Session{}, err
+		}
+		saved = next
+		return next, nil
+	})
 	if err != nil {
 		m.err = err
 		return
 	}
-	m.session = s
+	m.session = saved
 }
 
 func removeComment(comments []Comment, id string) []Comment {
