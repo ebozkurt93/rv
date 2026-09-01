@@ -105,3 +105,24 @@ they land, with the commit that did it.
       focus row mapping (both currently assume one unified column). Wanted;
       not started — needs its own scoped pass rather than being folded into
       something else.
+- [ ] **Comment editor shouldn't be a bordered box.** The inline "leave a
+      comment" widget (renderCommentEditor) currently draws its own small
+      rounded-border box under the line — wanted instead: something that
+      doesn't look like a boxed dialog (likely a plain inline row matching
+      how existing comments/replies already render, no border).
+- [ ] **`?` help overlay needs to scroll.** renderHelp truncates via
+      fitBlock instead of scrolling — on a short terminal, entries past the
+      visible height are silently cut off rather than reachable.
+- [ ] **Cursor-line highlight only covers the gutter, not the whole line.**
+      Root cause (traced, not yet fixed): buildDiffLines wraps the cursor
+      row's already-styled text (gutter's muted color + content's
+      added/removed color, each independently Render()'d and concatenated)
+      in styleCursor.Render(...) — but the gutter segment's own trailing
+      reset code cancels the outer Reverse() partway through the line, so
+      only the gutter portion actually renders reverse-video. Separately,
+      even once that's fixed, the reverse-video is applied before fitLine
+      pads the line to the full pane width, so the highlight would still
+      stop at the end of the text instead of spanning the row — needs
+      reordering so cursor styling wraps the final width-padded line, built
+      from a plain (uncolored) version of that one row's text so there's no
+      nested reset to fight.
