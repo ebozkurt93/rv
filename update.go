@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,20 +21,62 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// digitRune reports whether r can extend a pending vim-style count, and the
+// digit it represents. Leading zero doesn't start a count (vim reserves
+// bare "0" for move-to-start-of-line), but "10" is fine once "1" has
+// already been typed.
+func digitRune(r rune, bufferSoFar string) (int, bool) {
+	if r < '0' || r > '9' {
+		return 0, false
+	}
+	if r == '0' && bufferSoFar == "" {
+		return 0, false
+	}
+	return int(r - '0'), true
+}
+
 func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+
+	// Accumulate digits for a pending count (e.g. the "10" of "10j") without
+	// touching pendingG, so a count can still precede a "gg" chord.
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+		if _, ok := digitRune(msg.Runes[0], m.countBuffer); ok {
+			m.countBuffer += string(msg.Runes[0])
+			m.status = ""
+			return m, nil
+		}
+	}
+
+	hadCount := m.countBuffer != ""
+	count := 1
+	if hadCount {
+		if n, err := strconv.Atoi(m.countBuffer); err == nil && n > 0 {
+			count = n
+		}
+	}
+
 	wasPendingG := m.pendingG
 	m.pendingG = false
 	m.status = ""
+
+	// "g" starts (or, if pendingG, completes) the "gg" chord — don't consume
+	// the count buffer on the first "g" or a count typed before it would be
+	// lost by the time the second "g" arrives.
+	if keyMatches(msg, k.Top) && !wasPendingG {
+		m.pendingG = true
+		return m, nil
+	}
+	m.countBuffer = ""
 
 	switch {
 	case keyMatches(msg, k.Quit):
 		return m, tea.Quit
 
 	case keyMatches(msg, k.MoveDown):
-		m.moveCursor(1)
+		m.moveCursor(count)
 	case keyMatches(msg, k.MoveUp):
-		m.moveCursor(-1)
+		m.moveCursor(-count)
 
 	case keyMatches(msg, k.NextFile):
 		m.selectFile(m.fileIndex + 1)
@@ -41,16 +84,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectFile(m.fileIndex - 1)
 
 	case keyMatches(msg, k.Bottom):
-		rows := m.currentRows()
-		if len(rows) > 0 {
-			m.lineIndex = len(rows) - 1
-		}
-	case keyMatches(msg, k.Top):
-		if wasPendingG {
-			m.lineIndex = 0
-		} else {
-			m.pendingG = true
-		}
+		m.jumpTo(hadCount, count, true)
+	case keyMatches(msg, k.Top): // wasPendingG, i.e. second "g" of "gg"
+		m.jumpTo(hadCount, count, false)
 
 	case keyMatches(msg, k.AddComment):
 		if _, ok := m.currentLine(); ok {
@@ -98,6 +134,33 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// jumpTo implements G/gg: with no count, jump to defaultLast (G's default)
+// or the top (gg's default); with a count, both behave like vim's
+// "{count}G" — jump to that 1-based row number, clamped to the file's
+// extent.
+func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
+	rows := m.currentRows()
+	if len(rows) == 0 {
+		return
+	}
+	if !hadCount {
+		if defaultLast {
+			m.lineIndex = len(rows) - 1
+		} else {
+			m.lineIndex = 0
+		}
+		return
+	}
+	idx := count - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(rows) {
+		idx = len(rows) - 1
+	}
+	m.lineIndex = idx
 }
 
 func (m *model) moveCursor(delta int) {

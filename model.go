@@ -54,7 +54,8 @@ type model struct {
 	lineIndex int // index into files[fileIndex].rows
 	scroll    int
 
-	pendingG bool // mid-"gg" chord
+	pendingG    bool   // mid-"gg" chord
+	countBuffer string // digits typed so far for a pending vim-style count, e.g. "10" of "10j"
 
 	mode  mode
 	input string
