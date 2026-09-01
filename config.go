@@ -125,5 +125,6 @@ func keymapFields(km *Keymap) map[string]*[]string {
 		"comment_newline":      &km.CommentNewline,
 		"comment_editor":       &km.CommentEditor,
 		"toggle_comment_scope": &km.ToggleCommentScope,
+		"toggle_untracked":     &km.ToggleUntracked,
 	}
 }

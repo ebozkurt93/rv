@@ -134,6 +134,12 @@ func runTUI(diffSpec []string) error {
 		// visible instead of silently ignored.
 		m.err = keymapErr
 	}
+	// Best-effort, same reasoning as the keymap above: an untracked-file
+	// scan failing (e.g. git ls-files erroring in some unusual repo state)
+	// shouldn't block startup — just leave the toggle showing nothing.
+	if untracked, uerr := untrackedFileDiffs(gitRunner, repoRoot); uerr == nil {
+		m.setUntrackedDiffs(untracked)
+	}
 
 	_, err = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err

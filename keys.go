@@ -40,6 +40,7 @@ type Keymap struct {
 	CommentNewline     []string // insert a newline while composing a comment, instead of submitting
 	CommentEditor      []string // edit the in-progress comment body in $EDITOR
 	ToggleCommentScope []string // n/N include resolved comments too, instead of skipping them
+	ToggleUntracked    []string // show/hide files git isn't tracking at all
 }
 
 func defaultKeymap() Keymap {
@@ -77,6 +78,7 @@ func defaultKeymap() Keymap {
 		CommentNewline:     []string{"alt+enter"},
 		CommentEditor:      []string{"alt+e"},
 		ToggleCommentScope: []string{"C"},
+		ToggleUntracked:    []string{"u"},
 	}
 }
 

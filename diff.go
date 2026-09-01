@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -192,6 +194,14 @@ type FileDiff struct {
 	OldPath string
 	Status  FileStatus
 	Hunks   []Hunk
+	// Binary is true for an untracked binary file (see untrackedFileDiff) —
+	// its content isn't dumped as "every line added" the way a text file's
+	// is; Hunks is empty and the diff pane shows a placeholder instead.
+	Binary bool
+	// Untracked is true for a file git isn't tracking at all (see
+	// untrackedFileDiffs) — distinguished from Status == FileAdded, which
+	// git diff itself reports for a file that's staged/tracked as new.
+	Untracked bool
 }
 
 // fileDiffHash fingerprints a file's diff content (every hunk header and
@@ -203,7 +213,7 @@ type FileDiff struct {
 // it, which is the conservative direction to be wrong in.
 func fileDiffHash(fd FileDiff) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%d\x00", fd.Path, fd.Status)
+	fmt.Fprintf(h, "%s\x00%d\x00%v\x00", fd.Path, fd.Status, fd.Binary)
 	for _, hunk := range fd.Hunks {
 		fmt.Fprintf(h, "@%s\x00", hunk.Header)
 		for _, l := range hunk.Lines {
@@ -241,6 +251,83 @@ func ParseDiff(raw string) ([]FileDiff, error) {
 
 		for _, h := range f.Hunks {
 			fd.Hunks = append(fd.Hunks, convertHunk(h))
+		}
+		files = append(files, fd)
+	}
+	return files, nil
+}
+
+// untrackedFilePaths lists files git isn't tracking and isn't ignoring
+// (--exclude-standard honors .gitignore/.git/info/exclude/global excludes),
+// via `git ls-files --others --exclude-standard` — read-only, unlike
+// `git add -N`, which would mutate the index just to make these visible to
+// `git diff`.
+func untrackedFilePaths(runner GitRunner) ([]string, error) {
+	out, err := runner.Run("ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// looksBinary is git's own heuristic for "don't diff this as text": a NUL
+// byte anywhere in the first chunk of the file. Checking only a prefix
+// (matching git's own ~8000-byte sample) keeps this cheap for large files.
+func looksBinary(data []byte) bool {
+	if len(data) > 8000 {
+		data = data[:8000]
+	}
+	return bytes.IndexByte(data, 0) >= 0
+}
+
+// untrackedFileDiff synthesizes a FileDiff for a file git isn't tracking,
+// so it can flow through the same rendering/commenting path as a real diff
+// entry — status FileAdded, and (for a text file) a single hunk with every
+// line shown as added, since from a fresh-file perspective the whole thing
+// is new. A binary file gets Binary set instead of a hunk dump of raw bytes
+// as "added lines" — see FileDiff.Binary.
+func untrackedFileDiff(repoRoot, relPath string) (FileDiff, error) {
+	data, err := os.ReadFile(filepath.Join(repoRoot, relPath))
+	if err != nil {
+		return FileDiff{}, err
+	}
+	fd := FileDiff{Path: relPath, Status: FileAdded, Untracked: true}
+	if looksBinary(data) {
+		fd.Binary = true
+		return fd, nil
+	}
+
+	content := strings.Split(string(data), "\n")
+	if len(content) > 0 && content[len(content)-1] == "" {
+		content = content[:len(content)-1] // trailing newline, not a phantom empty final line
+	}
+	lines := make([]Line, len(content))
+	for i, c := range content {
+		n := i + 1
+		lines[i] = Line{Kind: LineAdded, Content: c, NewLine: &n}
+	}
+	fd.Hunks = []Hunk{{Header: fmt.Sprintf("-0,0 +1,%d", len(lines)), Lines: lines}}
+	return fd, nil
+}
+
+// untrackedFileDiffs is untrackedFilePaths plus untrackedFileDiff for each
+// result — a file that vanishes or becomes unreadable between the two
+// steps (a real possibility: nothing prevents the working tree from
+// changing mid-scan) is skipped rather than failing the whole batch.
+func untrackedFileDiffs(runner GitRunner, repoRoot string) ([]FileDiff, error) {
+	paths, err := untrackedFilePaths(runner)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]FileDiff, 0, len(paths))
+	for _, p := range paths {
+		fd, err := untrackedFileDiff(repoRoot, p)
+		if err != nil {
+			continue
 		}
 		files = append(files, fd)
 	}

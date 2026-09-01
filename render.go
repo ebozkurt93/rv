@@ -335,7 +335,7 @@ func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, widt
 	if selected {
 		prefix = "▸ "
 	}
-	marker := statusMarker(fr.file.Status)
+	marker := statusMarker(fr.file.Status, fr.file.Untracked)
 	check := " "
 	if reviewed {
 		check = styleAdded.Render("✓")
@@ -391,7 +391,10 @@ func truncateKeepingTail(s string, width int) string {
 	return "…" + string(r[len(r)-keep:])
 }
 
-func statusMarker(s FileStatus) string {
+func statusMarker(s FileStatus, untracked bool) string {
+	if untracked {
+		return styleMuted.Render("?") // matches git status's own convention for an untracked file
+	}
 	switch s {
 	case FileAdded:
 		return styleAdded.Render("A")
@@ -526,6 +529,10 @@ func (m model) buildDiffLines(width int) (lines []string, cursorLine int, rowFor
 // it — so callers that tint a row's background (renderDiff) don't bleed that
 // tint onto a comment's padding, which never had it baked into its own text.
 func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int, rowFor []int, mainLine []bool) {
+	if m.files[m.fileIndex].file.Binary {
+		return []string{styleMuted.Render("(binary file, not shown)")}, 0, []int{-1}, []bool{false}
+	}
+
 	rows := m.currentRows()
 	byRow := m.commentsByRow(m.files[m.fileIndex])
 
@@ -566,14 +573,27 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 			// rendered below already shows its live (in-progress) text —
 			// showing this stale, unedited copy too just reads as a
 			// duplicate until the edit is saved.
-			if m.mode == modeComment && c.ID == m.editingCommentID {
+			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
 				continue
 			}
 			for _, l := range strings.Split(renderComment(c), "\n") {
 				appendText(l, i, false)
 			}
-			for _, r := range c.Replies {
-				for _, l := range strings.Split(renderReply(r, c.Resolved), "\n") {
+			// A new reply being composed for this exact comment renders
+			// below its existing replies (see the editor block right after
+			// this loop) — so the previously-last reply isn't the thread's
+			// last branch anymore; it needs "├─" to keep the connector
+			// running into the in-progress one instead of capping the
+			// thread with "└─" right before more of it appears.
+			composingReplyHere := m.mode == modeComment && i == m.lineIndex && m.replyingToCommentID == c.ID
+			for ri, r := range c.Replies {
+				// Same reasoning as skipping the comment above: this reply's
+				// own editor row (below) already shows the live edit.
+				if m.mode == modeComment && m.editingReplyID != "" && r.ID == m.editingReplyID {
+					continue
+				}
+				last := ri == len(c.Replies)-1 && !composingReplyHere
+				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
 					appendText(l, i, false)
 				}
 			}
@@ -657,6 +677,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.ToggleSidebar, desc: "show/hide the sidebar"},
 		{keys: k.ToggleLineNumbers, desc: "show/hide line numbers"},
 		{keys: k.ToggleWrap, desc: "wrap long lines instead of truncating"},
+		{keys: k.ToggleUntracked, desc: "show/hide files git isn't tracking at all"},
 		{section: "Mouse"},
 		{keys: []string{"click"}, desc: "click a sidebar row to select that file"},
 		{keys: []string{"scroll"}, desc: "over the sidebar: change file · over the diff: move the cursor"},
@@ -737,11 +758,26 @@ func (m model) renderCommentEditor() string {
 	// The icon distinguishes what submitting will do — matches
 	// commentActionForCurrentLine's own decision (see AddComment in
 	// updateNormal), so what's about to happen is visible while typing.
-	icon := "✎" // editing in place, or a brand new comment
-	if m.replyingToCommentID != "" {
-		icon = "↩" // appending a new reply to an existing thread
+	icon, branch := "✎", "│  " // editing a comment's body in place, or a brand new comment — "│" as if it were the thread root
+	switch {
+	case m.editingReplyID != "":
+		// Editing the thread's own last reply in place (see
+		// commentActionForCurrentLine) — it takes that reply's own
+		// position, which is the terminal branch by definition (nothing
+		// replied to it, or it wouldn't be editable this way).
+		icon, branch = "✎", "└─ "
+	case m.replyingToCommentID != "":
+		// This row renders after any existing replies (see the reply loop
+		// above), making it the thread's actual last branch right now — "└─"
+		// rather than "│", matching how the reply just above it also
+		// switches to "├─" while this is being composed, so the connector
+		// runs continuously into it instead of the thread looking capped
+		// before more of it appears. A space between the branch and the
+		// icon (rather than packing them together, e.g. "└↩") keeps the two
+		// glyphs from reading as one cluttered symbol.
+		icon, branch = "↩", "└─ "
 	}
-	firstPrefix := "  ▏" + icon + " "
+	firstPrefix := "  " + branch + icon + " "
 	contPrefix := strings.Repeat(" ", ansi.StringWidth(firstPrefix))
 	inputLines := strings.Split(m.input, "\n")
 	rendered := make([]string, len(inputLines))
@@ -852,15 +888,27 @@ func lineNumStr(n *int) string {
 // renderCommentEditor does for a multi-line comment still being typed.
 func renderComment(c Comment) string {
 	// "●" rather than an emoji like "💬": emoji cell-width genuinely varies
-	// by terminal/font (some render 2 cells, some 1), so no single computed
-	// padding width can align a continuation line under "author:" correctly
-	// everywhere — one specific terminal will always disagree. A plain
-	// geometric symbol like this renders as exactly 1 cell everywhere,
-	// removing the ambiguity instead of trying to compensate for it.
-	icon := "  ▏● "
-	text := commentBodyLines(icon+c.Author+": ", strings.Repeat(" ", ansi.StringWidth(icon)), c.Body)
+	// by terminal/font (some render 2 cells, some 1), so a computed padding
+	// width meant to align under "author:" would still disagree with
+	// whichever terminal doesn't match that measurement. A plain geometric
+	// symbol renders as exactly 1 cell everywhere, sidestepping that.
+	//
+	// The continuation prefix repeats "│" at the same column as the first
+	// line's, rather than padding out to align under "author:" — like `tree`
+	// keeping "│" in a fixed column down consecutive sibling rows, so a
+	// multi-line comment reads as one connected block on a monospace font
+	// instead of the connector appearing to end after the first line. "│"
+	// (box drawing) rather than a Block Elements char like "▏": it's the
+	// same Unicode block "└─" below is drawn from, designed to connect
+	// seamlessly with it — a thin bar from a different block can land at a
+	// different sub-cell position in some fonts and visibly not line up.
+	text := commentBodyLines("  │● "+c.Author+": ", "  │  ", c.Body)
 	if c.Resolved {
-		return styleResolved.Render(text + " (resolved)")
+		// No "(resolved)" text suffix — the strikethrough (and its replies'
+		// matching strikethrough, see renderReply) already says this
+		// visually; a text label would be redundant everywhere it appears
+		// and only genuinely applies to the comment's own first line anyway.
+		return styleResolved.Render(text)
 	}
 	return styleComment.Render(text)
 }
@@ -869,11 +917,29 @@ func renderComment(c Comment) string {
 // thread's replies render in the normal comment color instead, so "this is
 // still open" reads clearly at a glance rather than every reply always
 // looking the same shade of gray regardless of status.
-func renderReply(r Reply, threadResolved bool) string {
-	icon := "    └─ "
-	text := commentBodyLines(icon+r.Author+": ", strings.Repeat(" ", ansi.StringWidth(icon)), r.Body)
+//
+// last is true only for the final reply in the thread, exactly like `tree`:
+// every non-last reply branches with "├─" and keeps "│" going in its own
+// continuation lines (something else follows at this level), while the
+// last one caps the thread with "└─" and a blank continuation — otherwise
+// every reply would show "└─" as if it were the end of the thread, and the
+// connector would break instead of running continuously through it.
+func renderReply(r Reply, threadResolved bool, last bool) string {
+	branch, cont := "├─", "  │  "
+	if last {
+		branch, cont = "└─", "     "
+	}
+	// The branch character sits in the exact same column "│" does on the
+	// comment's own lines (both at index 2), so the whole comment+replies
+	// block reads as one continuous connected line down the left edge.
+	icon := "  " + branch + " "
+	text := commentBodyLines(icon+r.Author+": ", cont, r.Body)
 	if threadResolved {
-		return styleMuted.Render(text)
+		// styleResolved (strikethrough), not plain styleMuted — otherwise a
+		// resolved thread's replies look merely dim instead of struck
+		// through like the comment's own first line, as if only that first
+		// line were actually resolved.
+		return styleResolved.Render(text)
 	}
 	return styleComment.Render(text)
 }

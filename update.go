@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -160,7 +161,13 @@ func (m *model) refreshAll() {
 		m.err = err
 		return
 	}
-	m.setDiffFiles(diffFiles)
+	m.trackedDiffs = diffFiles
+	// Best-effort: an untracked-file scan failing shouldn't block refreshing
+	// the tracked diff, so just keep whatever untrackedDiffs already had.
+	if untracked, uerr := untrackedFileDiffs(gitRunner, m.repoRoot); uerr == nil {
+		m.untrackedDiffs = untracked
+	}
+	m.setDiffFiles(m.effectiveDiffFiles())
 	m.refreshSessionIfChanged()
 	m.status = "refreshed"
 }
@@ -282,11 +289,22 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeComment
 			m.input = ""
 			m.editingCommentID = ""
+			m.editingReplyID = ""
 			m.replyingToCommentID = ""
-			if c, editing, replying := m.commentActionForCurrentLine(); editing {
+			c, editing, editingReplyID, replying := m.commentActionForCurrentLine()
+			switch {
+			case editing:
 				m.input = c.Body
 				m.editingCommentID = c.ID
-			} else if replying {
+			case editingReplyID != "":
+				m.editingReplyID = editingReplyID
+				for _, r := range c.Replies {
+					if r.ID == editingReplyID {
+						m.input = r.Body
+						break
+					}
+				}
+			case replying:
 				m.replyingToCommentID = c.ID
 			}
 		}
@@ -330,6 +348,15 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.ToggleWrap):
 		m.wrapLines = !m.wrapLines
 		m.persistUIPrefs()
+
+	case keyMatches(msg, k.ToggleUntracked):
+		m.toggleShowUntracked()
+		m.persistUIPrefs()
+		if m.showUntracked {
+			m.status = fmt.Sprintf("showing %d untracked file(s)", len(m.untrackedDiffs))
+		} else {
+			m.status = "hiding untracked files"
+		}
 
 	case keyMatches(msg, k.Export):
 		if len(m.session.Comments) == 0 {
@@ -379,12 +406,14 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.input = ""
 		m.editingCommentID = ""
+		m.editingReplyID = ""
 		m.replyingToCommentID = ""
 	case keyMatches(msg, k.Confirm):
 		m.addCommentUnderCursor()
 		m.mode = modeNormal
 		m.input = ""
 		m.editingCommentID = ""
+		m.editingReplyID = ""
 		m.replyingToCommentID = ""
 	case keyMatches(msg, k.CommentNewline):
 		m.input += "\n"
@@ -645,27 +674,39 @@ func (m *model) snapToVisibleFile() {
 }
 
 // commentActionForCurrentLine decides what pressing AddComment on the
-// cursor's line should do: edit the user's own most recent comment there in
-// place if nothing's replied to it yet, add a new reply to it if something
-// has (rewriting the body of a comment someone already responded to would
-// silently change what they were responding to — a new message reads as
-// "and separately, ..." instead), or leave both false to start a brand new
-// comment if there's nothing of the user's on this line yet. A resolved
-// match is treated the same as an unresolved one: editing/replying
-// un-resolves it (see addCommentUnderCursor) rather than requiring a
-// separate "reopen" step or starting a second, parallel thread.
-func (m model) commentActionForCurrentLine() (comment Comment, editing, replying bool) {
+// cursor's line should do, for the user's own most recent comment there:
+//
+//   - Nothing's replied to it yet: edit its body in place (editing=true).
+//   - The thread's last message is itself a reply the user wrote, with
+//     nothing after it: edit THAT reply's body in place instead
+//     (editingReplyID set) — otherwise the only way to fix a typo in your
+//     own latest reply would be to add yet another one on top of it.
+//   - Someone else (an agent) spoke last: add a new reply (replying=true).
+//     Rewriting the body of a message someone already responded to would
+//     silently change what they were responding to — a new message reads
+//     as "and separately, ..." instead.
+//   - Nothing of the user's is on this line yet: all three false, start a
+//     brand new comment.
+//
+// A resolved match is treated the same as an unresolved one: editing/
+// replying un-resolves it (see addCommentUnderCursor) rather than requiring
+// a separate "reopen" step or starting a second, parallel thread.
+func (m model) commentActionForCurrentLine() (comment Comment, editing bool, editingReplyID string, replying bool) {
 	comments := m.commentsForCurrentLine()
 	for i := len(comments) - 1; i >= 0; i-- {
-		if comments[i].Author != "user" {
+		c := comments[i]
+		if c.Author != "user" {
 			continue
 		}
-		if len(comments[i].Replies) == 0 {
-			return comments[i], true, false
+		if len(c.Replies) == 0 {
+			return c, true, "", false
 		}
-		return comments[i], false, true
+		if last := c.Replies[len(c.Replies)-1]; last.Author == "user" {
+			return c, false, last.ID, false
+		}
+		return c, false, "", true
 	}
-	return Comment{}, false, false
+	return Comment{}, false, "", false
 }
 
 func (m *model) addCommentUnderCursor() {
@@ -682,6 +723,21 @@ func (m *model) addCommentUnderCursor() {
 					s.Comments[i].Body = body
 					s.Comments[i].Resolved = false
 					break
+				}
+			}
+			return s, nil
+		})
+
+	case m.editingReplyID != "":
+		id, body := m.editingReplyID, m.input
+		m.mutateSession(func(s Session) (Session, error) {
+			for i := range s.Comments {
+				for j := range s.Comments[i].Replies {
+					if s.Comments[i].Replies[j].ID == id {
+						s.Comments[i].Replies[j].Body = body
+						s.Comments[i].Resolved = false
+						return s, nil
+					}
 				}
 			}
 			return s, nil

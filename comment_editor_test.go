@@ -122,6 +122,53 @@ func TestAddCommentOnRepliedThreadAddsReply(t *testing.T) {
 	}
 }
 
+// TestAddCommentOnOwnLastReplyEditsItInPlace guards the fix for "in a
+// thread I cannot edit my last unreplied comment? adds new one?" — when the
+// thread's most recent message is a reply the user themselves wrote (not
+// the root comment), AddComment must edit that reply in place instead of
+// always appending yet another new reply on top of it.
+func TestAddCommentOnOwnLastReplyEditsItInPlace(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	repo := "/repo"
+	must(t, saveSession(repo, Session{RepoRoot: repo, Comments: []Comment{
+		{ID: "c_1", File: "a.go", NewLine: &n, Body: "please check this", Author: "user",
+			Replies: []Reply{
+				{ID: "r_1", Body: "looks fine", Author: "agent"},
+				{ID: "r_2", Body: "typo in this reply", Author: "user"},
+			}},
+	}}))
+	session, err := loadSession(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel(repo, []FileDiff{fileDiffWithLines("a.go", 3)}, session, nil)
+	m.lineIndex = 1
+
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m2 := mm.(model)
+	if m2.mode != modeComment || m2.input != "typo in this reply" || m2.editingReplyID != "r_2" ||
+		m2.editingCommentID != "" || m2.replyingToCommentID != "" {
+		t.Fatalf("expected the editor pre-filled to edit r_2 in place, got mode=%v input=%q editingReply=%q editingComment=%q replying=%q",
+			m2.mode, m2.input, m2.editingReplyID, m2.editingCommentID, m2.replyingToCommentID)
+	}
+
+	m2.input = "fixed typo"
+	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m3 := mm.(model)
+	c := m3.session.Comments[0]
+	if len(c.Replies) != 2 {
+		t.Fatalf("expected editing in place, not a new reply — got %d replies", len(c.Replies))
+	}
+	if c.Replies[1].Body != "fixed typo" {
+		t.Fatalf("expected r_2's body updated to %q, got %q", "fixed typo", c.Replies[1].Body)
+	}
+	if c.Replies[0].Body != "looks fine" {
+		t.Fatalf("expected r_1 untouched, got %q", c.Replies[0].Body)
+	}
+}
+
 // TestAddCommentIgnoresAgentAuthoredComments guards the scoping decision:
 // AddComment only offers to edit/reply to the user's own comments — an
 // agent-authored one (e.g. via `rv comment reply` creating a top-level

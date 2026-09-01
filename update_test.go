@@ -140,6 +140,7 @@ func TestJumpToCommentSkipsResolvedAndWraps(t *testing.T) {
 // ToggleCommentScope — n/N skip resolved comments by default, but include
 // them once commentNavIncludeResolved is on.
 func TestJumpToCommentIncludesResolvedWhenScopeToggled(t *testing.T) {
+	withTempHome(t)
 	n1 := 1
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{Comments: []Comment{
 		{ID: "c_a", File: "a.go", NewLine: &n1, Resolved: true},

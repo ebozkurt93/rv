@@ -90,12 +90,13 @@ type model struct {
 	mode  mode
 	input string
 
-	// editingCommentID/replyingToCommentID are set instead of "" while
-	// modeComment is editing an existing comment's body, or adding a new
-	// reply to one, rather than composing a brand-new top-level comment —
-	// see commentActionForCurrentLine and addCommentUnderCursor. At most one
-	// of the two is ever set at a time.
+	// editingCommentID/editingReplyID/replyingToCommentID are set instead of
+	// "" while modeComment is editing an existing comment's or reply's body
+	// in place, or adding a new reply to a comment, rather than composing a
+	// brand-new top-level comment — see commentActionForCurrentLine and
+	// addCommentUnderCursor. At most one of the three is ever set at a time.
 	editingCommentID    string
+	editingReplyID      string
 	replyingToCommentID string
 
 	// commentNavIncludeResolved widens n/N (jumpToComment) to also stop on
@@ -120,6 +121,17 @@ type model struct {
 	sidebarHidden   bool
 	showLineNumbers bool
 	wrapLines       bool
+	showUntracked   bool
+
+	// trackedDiffs is the `git diff <spec>` result — always shown.
+	// untrackedDiffs is synthesized from files git isn't tracking at all
+	// (see untrackedFileDiffs in diff.go) and only included in m.files when
+	// showUntracked is on. Kept separately (rather than merging once into
+	// m.files) so toggling showUntracked can rebuild m.files instantly from
+	// what's already in memory, without a fresh git call — see
+	// effectiveDiffFiles and (*model).setShowUntracked.
+	trackedDiffs   []FileDiff
+	untrackedDiffs []FileDiff
 
 	// sessionMTime is the on-disk session's last-seen mtime, used to detect
 	// changes made by another process (e.g. an agent running `rv comment
@@ -128,29 +140,52 @@ type model struct {
 }
 
 func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec []string) model {
-	files := make([]fileRows, 0, len(diffFiles))
-	for _, fd := range diffFiles {
-		files = append(files, flattenFile(fd))
-	}
 	prefs := loadUIPrefs()
 	m := model{
 		repoRoot:                  repoRoot,
 		diffSpec:                  diffSpec,
-		files:                     files,
+		trackedDiffs:              diffFiles,
 		session:                   session,
 		keys:                      defaultKeymap(),
 		sidebarHidden:             prefs.SidebarHidden,
 		showLineNumbers:           prefs.ShowLineNumbers,
 		wrapLines:                 prefs.WrapLines,
+		showUntracked:             prefs.ShowUntracked,
 		commentNavIncludeResolved: prefs.CommentNavIncludeResolved,
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
 	}
-	if len(files) > 0 {
-		m.lineIndex = firstContentRow(files[0].rows)
-	}
+	m.setDiffFiles(m.effectiveDiffFiles())
 	return m
+}
+
+// effectiveDiffFiles is trackedDiffs, plus untrackedDiffs appended when
+// showUntracked is on — the combined list setDiffFiles actually flattens
+// into m.files.
+func (m model) effectiveDiffFiles() []FileDiff {
+	if !m.showUntracked || len(m.untrackedDiffs) == 0 {
+		return m.trackedDiffs
+	}
+	out := make([]FileDiff, 0, len(m.trackedDiffs)+len(m.untrackedDiffs))
+	out = append(out, m.trackedDiffs...)
+	out = append(out, m.untrackedDiffs...)
+	return out
+}
+
+// setUntrackedDiffs records freshly-fetched untracked-file diffs (initial
+// load or refresh — see runTUI/(*model).refreshAll) and rebuilds m.files if
+// they're currently shown.
+func (m *model) setUntrackedDiffs(untracked []FileDiff) {
+	m.untrackedDiffs = untracked
+	m.setDiffFiles(m.effectiveDiffFiles())
+}
+
+// toggleShowUntracked flips whether untrackedDiffs are included in m.files
+// — no fresh git call needed, just a rebuild from what's already fetched.
+func (m *model) toggleShowUntracked() {
+	m.showUntracked = !m.showUntracked
+	m.setDiffFiles(m.effectiveDiffFiles())
 }
 
 // uiPrefs snapshots the model's persisted display prefs, for saving back
@@ -160,6 +195,7 @@ func (m model) uiPrefs() uiPrefs {
 		SidebarHidden:             m.sidebarHidden,
 		ShowLineNumbers:           m.showLineNumbers,
 		WrapLines:                 m.wrapLines,
+		ShowUntracked:             m.showUntracked,
 		CommentNavIncludeResolved: m.commentNavIncludeResolved,
 	}
 }
