@@ -35,6 +35,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// refreshAll re-reads both the diff (the working tree may have changed —
+// e.g. an agent editing files while this TUI sits open — which the
+// background session poll never covers, since it only watches
+// comments/replies) and the session, without restarting the program.
+func (m *model) refreshAll() {
+	diffFiles, err := loadDiffFiles()
+	if err != nil {
+		m.err = err
+		return
+	}
+	m.setDiffFiles(diffFiles)
+	m.refreshSessionIfChanged()
+	m.status = "refreshed"
+}
+
 // refreshSessionIfChanged reloads the on-disk session if its mtime has
 // moved since we last read it — i.e. some other process (typically an
 // agent running `rv comment reply`/`resolve`) has written to it since.
@@ -136,6 +151,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.ToggleResolved):
 		m.toggleResolvedUnderCursor()
+
+	case keyMatches(msg, k.Refresh):
+		m.refreshAll()
 
 	case keyMatches(msg, k.Export):
 		if path, err := exportSession(m.repoRoot, m.session, m.diffFiles(), formatMarkdown); err != nil {

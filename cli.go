@@ -26,19 +26,24 @@ func run(args []string) error {
 	}
 }
 
-func runTUI() error {
-	vcs := gitVCS{runner: gitRunner}
-
-	repoRoot, err := vcs.RepoRoot()
+// loadDiffFiles re-runs and re-parses `git diff HEAD` against the current
+// working tree — used both for the TUI's initial load and for its manual
+// refresh (see (*model).refreshAll in update.go).
+func loadDiffFiles() ([]FileDiff, error) {
+	raw, err := (gitVCS{runner: gitRunner}).Diff()
 	if err != nil {
-		return fmt.Errorf("not a git repo: %w", err)
+		return nil, err
 	}
+	return ParseDiff(raw)
+}
 
-	raw, err := vcs.Diff()
+func runTUI() error {
+	repoRoot, err := currentRepoRoot()
 	if err != nil {
 		return err
 	}
-	diffFiles, err := ParseDiff(raw)
+
+	diffFiles, err := loadDiffFiles()
 	if err != nil {
 		return fmt.Errorf("parsing diff: %w", err)
 	}

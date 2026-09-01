@@ -102,6 +102,38 @@ func (m model) currentRows() []diffRow {
 	return m.files[m.fileIndex].rows
 }
 
+// setDiffFiles replaces the model's diff with a freshly re-parsed one (see
+// refreshAll in update.go), keeping the cursor on the same file by path
+// when it still exists, and clamping lineIndex if that file got shorter.
+func (m *model) setDiffFiles(diffFiles []FileDiff) {
+	currentPath := ""
+	if m.fileIndex >= 0 && m.fileIndex < len(m.files) {
+		currentPath = m.files[m.fileIndex].file.Path
+	}
+
+	files := make([]fileRows, 0, len(diffFiles))
+	newIndex := 0
+	for i, fd := range diffFiles {
+		files = append(files, flattenFile(fd))
+		if fd.Path == currentPath {
+			newIndex = i
+		}
+	}
+	m.files = files
+	m.fileIndex = newIndex
+
+	if len(files) == 0 {
+		m.lineIndex = 0
+		return
+	}
+	if m.lineIndex >= len(files[newIndex].rows) {
+		m.lineIndex = len(files[newIndex].rows) - 1
+	}
+	if m.lineIndex < 0 {
+		m.lineIndex = 0
+	}
+}
+
 // halfPageSize is how many rows ctrl+d/ctrl+u move, mirroring vim: half of
 // the diff pane's visible height (the same height math render.go uses to
 // size that panel).
