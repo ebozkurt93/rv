@@ -85,7 +85,15 @@ they land, with the commit that did it.
       foregrounds made every added/removed line look like a neon
       highlighter. Dark/light tint set is picked via a cheap `$COLORFGBG`
       guess rather than a live terminal background query, which can hang
-      for seconds (`OSCTimeout`) on a terminal that never answers it.
+      for seconds (`OSCTimeout`) on a terminal that never answers it. The
+      gutter's line numbers carry the same tint and color as the +/- prefix
+      (not just the code), the tint's raw truecolor escape is built by hand
+      for the gutter/prefix instead of via `lipgloss.Style.Background` (which
+      downgrades a hex color to the nearest ANSI-16 shade under a
+      non-truecolor profile, visibly mismatching the syntax-highlighted
+      text's own untouched truecolor tint), and a token whose own color
+      nearly matches the tint (e.g. a comment) falls back to a contrast-safe
+      black/white instead of rendering as next-to-invisible text.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.
@@ -131,3 +139,10 @@ they land, with the commit that did it.
       an outer `styleCursor.Render(...)` wrap, and `renderDiff` tints
       `fitLine`'s padding to match via `fitLineWithBackground` so the
       highlight spans the full row width, not just the text.
+- [ ] **Multi-line comment editing.** The inline comment editor is single-
+      line only. Wanted: shift+enter or alt+enter inserts a newline instead
+      of submitting; a keybinding to open the comment in `$EDITOR` (like `o`
+      does for a diff line) for anyone who'd rather write a longer comment
+      there; and multi-line comment bodies need to actually render well in
+      the diff pane (renderComment/renderReply currently assume a single
+      line each).

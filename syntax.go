@@ -100,6 +100,36 @@ func init() {
 	bgCursor = lipgloss.Color(tints.cursor)
 }
 
+// tintBgEscape returns bg's raw truecolor background escape. Used instead
+// of lipgloss's Style.Background(bg) for anything that needs to line up
+// with tintedFormatter's own output (the prefix character, the gutter) —
+// lipgloss downgrades a hex color to the nearest basic-16 ANSI color when
+// its detected terminal profile is less than truecolor, but tintedFormatter
+// always emits a raw truecolor escape regardless of profile (same as
+// fitLineWithBackground), so a lipgloss-rendered segment could otherwise
+// land on a visibly different shade than the syntax-highlighted text right
+// next to it in the same row.
+func tintBgEscape(bg lipgloss.Color) string {
+	c := chroma.MustParseColour(string(bg))
+	return fmt.Sprintf("\033[48;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+}
+
+// ansiFgEscape converts one of rv's basic-16-color lipgloss.Color values
+// (e.g. colorAdded == "2") to its raw SGR foreground escape, following the
+// standard split — normal colors 0-7 are 30-37, bright colors 8-15 are
+// 90-97 — so it can be combined with tintBgEscape into one manually-built
+// escape sequence instead of going through lipgloss (see tintBgEscape).
+func ansiFgEscape(c lipgloss.Color) string {
+	idx, err := strconv.Atoi(string(c))
+	if err != nil {
+		return ""
+	}
+	if idx < 8 {
+		return fmt.Sprintf("\033[%dm", 30+idx)
+	}
+	return fmt.Sprintf("\033[%dm", 90+(idx-8))
+}
+
 // pickLexer resolves which chroma lexer to use for path, once per file
 // (cached on fileRows — lexers.Match does filename pattern matching, not
 // worth repeating per line).
@@ -146,9 +176,8 @@ var ansi16 = map[chroma.Colour]string{
 }
 
 // nearestANSI16 finds the closest of chroma's 16 canonical colors to seeking
-// (Lab-space distance, same metric formatters.TTY16 uses internally) and
-// returns its escape code.
-func nearestANSI16(seeking chroma.Colour) string {
+// (Lab-space distance, same metric formatters.TTY16 uses internally).
+func nearestANSI16(seeking chroma.Colour) chroma.Colour {
 	var closest chroma.Colour
 	best := -1.0
 	for candidate := range ansi16 {
@@ -158,23 +187,63 @@ func nearestANSI16(seeking chroma.Colour) string {
 			closest = candidate
 		}
 	}
-	return ansi16[closest]
+	return closest
 }
+
+// relativeLuminance is a standard perceived-brightness weighting (WCAG's
+// coefficients), used only to compare our own fixed hex values against each
+// other — not a claim about how any given terminal actually renders an ANSI
+// slot, since that's terminal-theme-defined and unknowable here. Good
+// enough as a heuristic: it's built from the same reference hexes
+// nearestANSI16 already matches against.
+func relativeLuminance(c chroma.Colour) float64 {
+	return 0.2126*float64(c.Red())/255 + 0.7152*float64(c.Green())/255 + 0.0722*float64(c.Blue())/255
+}
+
+// contrastRatio is the WCAG contrast formula: (L1+0.05)/(L2+0.05) with L1
+// the lighter of the two.
+func contrastRatio(a, b chroma.Colour) float64 {
+	la, lb := relativeLuminance(a)+0.05, relativeLuminance(b)+0.05
+	if la < lb {
+		la, lb = lb, la
+	}
+	return la / lb
+}
+
+// minTintedContrast is the floor below which a token's own color is
+// considered unreadable against a tinted background and gets swapped for
+// contrastFallback instead — e.g. monokai's comment gray, or a token
+// that happens to reduce to the same hue as the tint itself (a dark green
+// keyword on a dark green "added" tint), which without this would render
+// as text with virtually no contrast against its own line.
+const minTintedContrast = 2.2
 
 // tintedFormatter renders each token's foreground reduced to the nearest of
 // the basic 16 ANSI colors (so it still follows the terminal theme, exactly
-// like formatters.TTY16), paired with a fixed truecolor background — baked
-// into every single token's own escape sequence, not applied as an outer
-// wrap. Chroma resets (\033[0m) after every token, so an outer wrap would
-// get canceled by the first token's reset; baking it in per-token means
-// there's nothing to cancel.
+// like formatters.TTY16) — unless that color's own reference hex has too
+// little contrast against this formatter's fixed background tint, in which
+// case it falls back to whichever of black/white contrasts better against
+// that tint. The background itself is paired in per-token, baked into every
+// single token's own escape sequence rather than applied as an outer wrap:
+// chroma resets (\033[0m) after every token, so an outer wrap would get
+// canceled by the first token's reset.
 type tintedFormatter struct {
+	bg       chroma.Colour
 	bgEscape string
+	fallback chroma.Colour
 }
 
 func newTintedFormatter(bgHex string) *tintedFormatter {
 	bg := chroma.MustParseColour(bgHex)
-	return &tintedFormatter{bgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue())}
+	fallback := chroma.MustParseColour("#ffffff")
+	if relativeLuminance(bg) > 0.5 {
+		fallback = chroma.MustParseColour("#000000")
+	}
+	return &tintedFormatter{
+		bg:       bg,
+		bgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue()),
+		fallback: fallback,
+	}
 }
 
 func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iterator) error {
@@ -191,7 +260,11 @@ func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Ite
 			formatting += "\033[3m"
 		}
 		if entry.Colour.IsSet() {
-			formatting += nearestANSI16(entry.Colour)
+			fg := nearestANSI16(entry.Colour)
+			if contrastRatio(fg, f.bg) < minTintedContrast {
+				fg = f.fallback
+			}
+			formatting += ansi16Or24(fg)
 		}
 		formatting += f.bgEscape
 		io.WriteString(w, formatting)
@@ -199,4 +272,14 @@ func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Ite
 		io.WriteString(w, "\033[0m")
 	}
 	return nil
+}
+
+// ansi16Or24 returns c's escape from the 16-color table if c is one of
+// those 16 canonical colors, otherwise (the black/white contrast fallback,
+// which isn't necessarily one of them) a truecolor escape for c directly.
+func ansi16Or24(c chroma.Colour) string {
+	if esc, ok := ansi16[c]; ok {
+		return esc
+	}
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
 }

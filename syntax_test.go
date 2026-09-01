@@ -32,6 +32,53 @@ func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 	}
 }
 
+// TestTintedFormatterFallsBackWhenTokenColorLacksContrast guards the fix for
+// tokens (e.g. a comment) whose color reduces to nearly the same hue as the
+// tint itself, which without a fallback renders as text with virtually no
+// contrast against its own line's background.
+func TestTintedFormatterFallsBackWhenTokenColorLacksContrast(t *testing.T) {
+	f := newTintedFormatter("#1f3d2b") // same hue family as monokai's comment color
+	lexer := pickLexer("a.go")
+	out := highlightContent(lexer, f, "// a comment")
+	iterator, err := lexer.Tokenise(nil, "// a comment")
+	if err != nil {
+		t.Fatalf("tokenise: %v", err)
+	}
+	tok := iterator()
+	entry := syntaxContextStyle.Get(tok.Type)
+	if contrastRatio(nearestANSI16(entry.Colour), f.bg) >= minTintedContrast {
+		t.Skip("this base style's comment color already contrasts fine against this tint; nothing to guard")
+	}
+	// The fallback colors (black/white) are themselves two of chroma's 16
+	// canonical colors, so ansi16Or24 emits their plain ANSI codes (97/30)
+	// rather than a truecolor escape — either is an acceptable fallback.
+	if !strings.Contains(out, "\033[97m") && !strings.Contains(out, "\033[30m") {
+		t.Fatalf("expected a contrast fallback (black or white) foreground, got %q", out)
+	}
+}
+
+func TestGutterMatchesPrefixColor(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	old, new := 1, 1
+	added := renderLine(pickLexer("a.go"), Line{Kind: LineAdded, Content: "x", NewLine: &new}, true, 1, false)
+	removed := renderLine(pickLexer("a.go"), Line{Kind: LineRemoved, Content: "x", OldLine: &old}, true, 1, false)
+	// The gutter number's own ANSI color code should match the +/- prefix's
+	// (styleAdded/styleRemoved) rather than always being muted gray — the
+	// gutter is otherwise the only unstyled patch of a tinted row. Both the
+	// gutter and the prefix character carry the same SGR foreground code,
+	// so it should appear (at least) twice in the rendered line.
+	addedGreen := styleAdded.Render("+")[:strings.Index(styleAdded.Render("+"), "+")]
+	removedRed := styleRemoved.Render("-")[:strings.Index(styleRemoved.Render("-"), "-")]
+	if strings.Count(added, addedGreen) < 2 {
+		t.Fatalf("expected added row's gutter to reuse the prefix's color code %q, got %q", addedGreen, added)
+	}
+	if strings.Count(removed, removedRed) < 2 {
+		t.Fatalf("expected removed row's gutter to reuse the prefix's color code %q, got %q", removedRed, removed)
+	}
+}
+
 func TestRenderLineCursorStyleTakesPriorityOverDiffStatus(t *testing.T) {
 	old := 1
 	added := renderLine(pickLexer("a.go"), Line{Kind: LineAdded, Content: "x", NewLine: &old}, false, 1, false)

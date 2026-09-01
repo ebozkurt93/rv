@@ -664,33 +664,63 @@ func (m model) renderCommentEditor() string {
 // that distinction matters here).
 func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, cursor bool) string {
 	prefix := " "
-	prefixStyle := lipgloss.NewStyle()
+	prefixFg := lipgloss.Color("")
 	fmtr := syntaxContextFmt
+	bg := lipgloss.Color("")
 	switch l.Kind {
 	case LineAdded:
 		prefix = "+"
-		prefixStyle = styleAdded.Background(bgAdded)
+		prefixFg = colorAdded
+		bg = bgAdded
 		fmtr = syntaxAddedFmt
 	case LineRemoved:
 		prefix = "-"
-		prefixStyle = styleRemoved.Background(bgRemoved)
+		prefixFg = colorRemoved
+		bg = bgRemoved
 		fmtr = syntaxRemovedFmt
 	}
 	if cursor {
 		fmtr = syntaxCursorFmt
-		prefixStyle = prefixStyle.Background(bgCursor)
+		bg = bgCursor
 	}
 
-	content := prefixStyle.Render(prefix) + highlightContent(lexer, fmtr, l.Content)
+	// Built as raw escapes (not lipgloss.Style.Background) whenever a tint
+	// applies, so the prefix/gutter's background always matches the
+	// syntax-highlighted content's truecolor tint exactly — see
+	// tintBgEscape's doc comment for why a lipgloss-rendered segment can't
+	// be trusted to land on the same shade.
+	renderTinted := func(text string, fg lipgloss.Color) string {
+		if bg == "" {
+			if fg == "" {
+				return lipgloss.NewStyle().Render(text)
+			}
+			return lipgloss.NewStyle().Foreground(fg).Render(text)
+		}
+		return ansiFgEscape(fg) + tintBgEscape(bg) + text + "\033[0m"
+	}
+
+	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, l.Content)
 	if !showNumbers {
 		return content
 	}
-	// Independently rendered (muted) and concatenated, not nested inside
-	// content's own Render call — nesting would let content's reset code
-	// cut the gutter's styling off partway through. No literal separator
-	// character — the muted color plus the trailing space are enough to
-	// read as "gutter, then code" without adding visual noise.
-	gutter := styleMuted.Render(fmt.Sprintf("%*s %*s  ", numWidth, lineNumStr(l.OldLine), numWidth, lineNumStr(l.NewLine)))
+	// The gutter's numbers share the prefix's exact color (muted for
+	// context, green/red for added/removed) rather than always being muted
+	// — GitHub/Hunk color the gutter the same as the +/- marker, and it
+	// doubles as the contrast-safe choice against the tinted background
+	// (green/red already reads fine there; it's what's already used on the
+	// tint everywhere else on the row).
+	gutterFg := colorMuted
+	if l.Kind != LineContext {
+		gutterFg = prefixFg
+	}
+	// Independently rendered and concatenated, not nested inside content's
+	// own Render call — nesting would let content's reset code cut the
+	// gutter's styling off partway through. No literal separator character
+	// — the muted color plus the trailing space are enough to read as
+	// "gutter, then code" without adding visual noise. renderTinted carries
+	// the same background tint as the content/prefix so a tinted row's
+	// background covers the numbers too, not just the code.
+	gutter := renderTinted(fmt.Sprintf("%*s %*s  ", numWidth, lineNumStr(l.OldLine), numWidth, lineNumStr(l.NewLine)), gutterFg)
 	return gutter + content
 }
 
