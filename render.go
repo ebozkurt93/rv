@@ -338,7 +338,7 @@ func (m model) buildDiffLines(width int) (lines []string, cursorLine int) {
 			continue
 		}
 
-		text := renderLine(row.line, m.showLineNumbers)
+		text := renderLine(row.line, m.showLineNumbers, m.files[m.fileIndex].numWidth)
 		start := len(lines)
 		if i == m.lineIndex {
 			cursorLine = start
@@ -475,7 +475,7 @@ func (m model) renderCommentEditor() string {
 	return style.Render(styleComment.Render(label) + input + "█")
 }
 
-func renderLine(l Line, showNumbers bool) string {
+func renderLine(l Line, showNumbers bool, numWidth int) string {
 	prefix := " "
 	style := lipgloss.NewStyle()
 	switch l.Kind {
@@ -492,8 +492,10 @@ func renderLine(l Line, showNumbers bool) string {
 	}
 	// Independently rendered (muted) and concatenated, not nested inside
 	// content's own Render call — nesting would let content's reset code
-	// cut the gutter's styling off partway through.
-	gutter := styleMuted.Render(fmt.Sprintf("%4s %4s ", lineNumStr(l.OldLine), lineNumStr(l.NewLine)))
+	// cut the gutter's styling off partway through. No literal separator
+	// character — the muted color plus the trailing space are enough to
+	// read as "gutter, then code" without adding visual noise.
+	gutter := styleMuted.Render(fmt.Sprintf("%*s %*s  ", numWidth, lineNumStr(l.OldLine), numWidth, lineNumStr(l.NewLine)))
 	return gutter + content
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,15 +39,31 @@ type diffRow struct {
 type fileRows struct {
 	file FileDiff
 	rows []diffRow
+	// numWidth is how many digits wide this file's line-number gutter
+	// columns need to be — sized to the file's own largest line number
+	// rather than a fixed width, so a 40-line file gets a 2-char gutter
+	// instead of always reserving room for 4.
+	numWidth int
 }
 
 func flattenFile(fd FileDiff) fileRows {
 	fr := fileRows{file: fd}
+	maxNum := 0
 	for _, h := range fd.Hunks {
 		fr.rows = append(fr.rows, diffRow{kind: rowHunkHeader, hunkHeader: h.Header})
 		for _, l := range h.Lines {
 			fr.rows = append(fr.rows, diffRow{kind: rowLine, line: l})
+			if l.OldLine != nil && *l.OldLine > maxNum {
+				maxNum = *l.OldLine
+			}
+			if l.NewLine != nil && *l.NewLine > maxNum {
+				maxNum = *l.NewLine
+			}
 		}
+	}
+	fr.numWidth = len(strconv.Itoa(maxNum))
+	if fr.numWidth < 1 {
+		fr.numWidth = 1
 	}
 	return fr
 }
