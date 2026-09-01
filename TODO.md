@@ -112,11 +112,12 @@ they land, with the commit that did it.
       over the sidebar changes the selected file; over the diff pane it
       moves the cursor a few lines at a time. Ignored outside modeNormal —
       a stray click while an overlay/prompt is open does nothing.
-- [ ] **Show/hide untracked/new files.** Needs scoping first — `rv` only
-      ever diffs `git diff <spec>`, which never includes untracked files at
-      all (git's own behavior), so "new files" today means files git tracks
-      as newly-added in the diff (status `A`), not untracked working-tree
-      files. Clarify which is actually wanted before building a toggle.
+- [x] **Show/hide untracked/new files.** `u` toggles files git isn't
+      tracking at all (`git ls-files --others --exclude-standard`,
+      read-only), synthesized as an all-added FileDiff — hidden by default,
+      persisted like the other display toggles. Marked "?" in the sidebar,
+      distinct from a tracked file's own "A" status. A binary untracked
+      file shows a placeholder instead of dumping raw bytes as added lines.
 - [x] **Fragile comment re-anchoring.** Comment now records the exact line
       content at creation time (`LineContent`). `commentAnchorRow` prefers
       the original file+line-number position if its content still matches
