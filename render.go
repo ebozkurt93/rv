@@ -128,6 +128,9 @@ func (m model) renderHeader() string {
 	stats := styleAdded.Render(fmt.Sprintf("+%d", added)) + " " + styleRemoved.Render(fmt.Sprintf("-%d", removed))
 	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel()+" · ") + stats
 	countsText := fmt.Sprintf("%d/%d file(s) reviewed, %d comment(s), %d unresolved", reviewedCount, len(m.files), total, unresolved)
+	if orphaned := m.orphanedCommentCount(); orphaned > 0 {
+		countsText += fmt.Sprintf(", %d orphaned", orphaned)
+	}
 	if m.fileFilter != "" {
 		shown := len(m.visibleFileIndices(m.fileFilter))
 		countsText += fmt.Sprintf(" · filter %q (%d/%d shown)", m.fileFilter, shown, len(m.files))
@@ -524,7 +527,7 @@ func (m model) buildDiffLines(width int) (lines []string, cursorLine int, rowFor
 // tint onto a comment's padding, which never had it baked into its own text.
 func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int, rowFor []int, mainLine []bool) {
 	rows := m.currentRows()
-	file := m.files[m.fileIndex].file
+	byRow := m.commentsByRow(m.files[m.fileIndex])
 
 	appendText := func(text string, rowIdx int, main bool) {
 		if m.wrapLines {
@@ -558,7 +561,14 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		}
 		appendText(text, i, true)
 
-		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
+		for _, c := range byRow[i] {
+			// While this exact comment is being edited in place, the editor
+			// rendered below already shows its live (in-progress) text —
+			// showing this stale, unedited copy too just reads as a
+			// duplicate until the edit is saved.
+			if m.mode == modeComment && c.ID == m.editingCommentID {
+				continue
+			}
 			for _, l := range strings.Split(renderComment(c), "\n") {
 				appendText(l, i, false)
 			}

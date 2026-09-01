@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,6 +48,25 @@ func TestAddCommentOnOwnUnrepliedCommentEditsInPlace(t *testing.T) {
 	if m2.mode != modeComment || m2.input != "original" || m2.editingCommentID != "c_1" {
 		t.Fatalf("expected the editor pre-filled for in-place editing, got mode=%v input=%q editing=%q",
 			m2.mode, m2.input, m2.editingCommentID)
+	}
+
+	// The stale, unedited comment must not also render while its editor is
+	// open (a real bug caught mid-implementation: both showed up until save).
+	lines, _, _, _ := m2.buildDiffLinesDetailed(80)
+	seenOriginal, seenEditor := false, false
+	for _, l := range lines {
+		if strings.Contains(l, "💬") {
+			seenOriginal = true
+		}
+		if strings.Contains(l, "✎") {
+			seenEditor = true
+		}
+	}
+	if seenOriginal {
+		t.Fatalf("expected the stale unedited comment row hidden while editing, got lines=%v", lines)
+	}
+	if !seenEditor {
+		t.Fatalf("expected the editor row to render, got lines=%v", lines)
 	}
 
 	m2.input = "edited"

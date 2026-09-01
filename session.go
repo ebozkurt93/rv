@@ -30,15 +30,22 @@ type Session struct {
 // removed line has only OldLine, on an added line only NewLine, and on a
 // context line both.
 type Comment struct {
-	ID        string    `json:"id"`
-	File      string    `json:"file"`
-	OldLine   *int      `json:"old_line,omitempty"`
-	NewLine   *int      `json:"new_line,omitempty"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"` // "user" (left in the TUI) or "agent" (left via `rv comment reply`)
-	Resolved  bool      `json:"resolved"`
-	CreatedAt time.Time `json:"created_at"`
-	Replies   []Reply   `json:"replies,omitempty"`
+	ID      string `json:"id"`
+	File    string `json:"file"`
+	OldLine *int   `json:"old_line,omitempty"`
+	NewLine *int   `json:"new_line,omitempty"`
+	// LineContent is the exact line text at creation time — lets
+	// commentAnchorRow tell a genuinely-moved comment apart from one whose
+	// original line vanished, and re-anchor it by content instead of either
+	// silently losing it or reattaching to an unrelated line that happens to
+	// land at the same number. Empty for comments created before this
+	// existed, which just fall back to pure line-number matching.
+	LineContent string    `json:"line_content,omitempty"`
+	Body        string    `json:"body"`
+	Author      string    `json:"author"` // "user" (left in the TUI) or "agent" (left via `rv comment reply`)
+	Resolved    bool      `json:"resolved"`
+	CreatedAt   time.Time `json:"created_at"`
+	Replies     []Reply   `json:"replies,omitempty"`
 }
 
 // Reply is a threaded response to a Comment — how an agent talks back

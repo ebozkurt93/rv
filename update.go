@@ -701,13 +701,14 @@ func (m *model) addCommentUnderCursor() {
 		file := m.files[m.fileIndex].file.Path
 
 		comment := Comment{
-			ID:        newCommentID(),
-			File:      file,
-			OldLine:   line.OldLine,
-			NewLine:   line.NewLine,
-			Body:      m.input,
-			Author:    "user",
-			CreatedAt: time.Now(),
+			ID:          newCommentID(),
+			File:        file,
+			OldLine:     line.OldLine,
+			NewLine:     line.NewLine,
+			LineContent: line.Content,
+			Body:        m.input,
+			Author:      "user",
+			CreatedAt:   time.Now(),
 		}
 
 		m.mutateSession(func(s Session) (Session, error) {
