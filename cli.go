@@ -19,6 +19,8 @@ func run(args []string) error {
 		return runSession(args[1:])
 	case "comment":
 		return runComment(args[1:])
+	case "skill":
+		return runSkill(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
