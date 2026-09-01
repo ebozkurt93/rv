@@ -18,6 +18,8 @@ type Keymap struct {
 	DeleteComment  []string
 	ToggleResolved []string
 	Export         []string
+	CopyMarkdown   []string
+	CopyJSON       []string
 	Confirm        []string
 	Cancel         []string
 	Backspace      []string
@@ -36,6 +38,8 @@ func defaultKeymap() Keymap {
 		DeleteComment:  []string{"d"},
 		ToggleResolved: []string{"r"},
 		Export:         []string{"e"},
+		CopyMarkdown:   []string{"y"},
+		CopyJSON:       []string{"Y"},
 		Confirm:        []string{"enter"},
 		Cancel:         []string{"esc"},
 		Backspace:      []string{"backspace"},

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Colors are all drawn from the basic 16-color ANSI palette (as opposed to
@@ -76,49 +77,149 @@ func (m model) renderHeader() string {
 	if width < 1 {
 		width = 80
 	}
-	line := lipgloss.NewStyle().Width(width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", max(1, width-lipgloss.Width(title)-lipgloss.Width(counts)-1)), counts),
+	gap := width - lipgloss.Width(title) - lipgloss.Width(counts) - 1
+	if gap < 1 {
+		gap = 1
+	}
+	line := lipgloss.NewStyle().MaxWidth(width).Render(
+		lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", gap), counts),
 	)
 	rule := lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", width))
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule)
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+// bodyHeight is the vertical space left for the sidebar+diff row after the
+// header and footer.
+func (m model) bodyHeight() int {
+	h := m.height - 4 // 2 header lines + 1 footer line + slack
+	if h < 3 {
+		h = 3
 	}
-	return b
+	return h
+}
+
+// fitBlock pins lines to exactly height entries — truncating extras or
+// padding with blanks — so a panel's rendered height never depends on how
+// much content it happens to have. Without this, a long file or a cursor
+// line with several comments under it would make one frame taller than the
+// next, and since both panels sit in the same JoinHorizontal row, the whole
+// layout (sidebar included) would visibly shift as you scroll.
+func fitBlock(lines []string, height int) []string {
+	if height < 0 {
+		height = 0
+	}
+	if len(lines) > height {
+		return lines[:height]
+	}
+	out := make([]string, height)
+	copy(out, lines)
+	return out
+}
+
+// fitLine truncates (never wraps) s to exactly width cells, right-padding
+// with spaces if it's shorter. Every line handed to a bordered panel goes
+// through this, so the panel's rendered width is always exactly width
+// regardless of content — critical because lipgloss.Style.Width() wraps
+// (rather than truncates) any line that's still too long once its own
+// padding is subtracted, which otherwise silently turns one logical line
+// into two rendered ones and throws off every height calculation above it.
+func fitLine(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	s = ansi.Truncate(s, width, "…")
+	if w := ansi.StringWidth(s); w < width {
+		s += strings.Repeat(" ", width-w)
+	}
+	return s
+}
+
+// clampScroll centers cursor within a height-tall window over [0, total),
+// clamped so the window never runs past either end.
+func clampScroll(cursor, total, height int) int {
+	if height <= 0 || total <= height {
+		return 0
+	}
+	scroll := cursor - height/2
+	if scroll < 0 {
+		scroll = 0
+	}
+	if max := total - height; scroll > max {
+		scroll = max
+	}
+	return scroll
 }
 
 func (m model) renderSidebar() string {
-	var b strings.Builder
-	for i, fr := range m.files {
-		marker := statusMarker(fr.file.Status)
-		n := unresolvedCount(m.session.Comments, fr.file.Path)
-		label := fmt.Sprintf("%s %s", marker, fr.file.Path)
-		if n > 0 {
-			label += styleComment.Render(fmt.Sprintf(" (%d)", n))
-		}
-		if i == m.fileIndex {
-			b.WriteString(styleSelected.Render("▸ " + label))
-		} else {
-			b.WriteString("  " + label)
-		}
-		b.WriteString("\n")
-	}
-
 	innerW := sidebarWidth - borderOverheadW
 	innerH := m.bodyHeight() - borderOverheadH
 	if innerH < 1 {
 		innerH = 1
 	}
+
+	lines := make([]string, len(m.files))
+	for i, fr := range m.files {
+		lines[i] = renderSidebarRow(fr, i == m.fileIndex, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
+	}
+
+	scroll := clampScroll(m.fileIndex, len(lines), innerH)
+	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
+	for i, l := range window {
+		window[i] = fitLine(l, innerW)
+	}
+
 	return lipgloss.NewStyle().
 		Border(panelBorder).
 		BorderForeground(colorBorder).
 		Padding(0, 1).
-		Width(innerW).
-		Height(innerH).
-		Render(b.String())
+		Render(strings.Join(window, "\n"))
+}
+
+// renderSidebarRow renders a single sidebar line, truncated (never wrapped)
+// to fit width — the file path is truncated from the left so the filename
+// itself, the most useful part, stays visible.
+func renderSidebarRow(fr fileRows, selected bool, unresolved int, width int) string {
+	prefix := "  "
+	if selected {
+		prefix = "▸ "
+	}
+	marker := statusMarker(fr.file.Status)
+	suffix := ""
+	if unresolved > 0 {
+		suffix = fmt.Sprintf(" (%d)", unresolved)
+	}
+
+	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - 1 - lipgloss.Width(suffix)
+	path := truncateKeepingTail(fr.file.Path, avail)
+
+	// Concatenate independently-rendered segments rather than nesting one
+	// Style.Render call inside another — nesting would let the inner
+	// segment's reset code cut off the outer style partway through the line.
+	if selected {
+		return styleSelected.Render(prefix) + marker + styleSelected.Render(" "+path) + styleComment.Render(suffix)
+	}
+	return prefix + marker + " " + path + styleComment.Render(suffix)
+}
+
+// truncateKeepingTail truncates s to at most width cells, preferring to
+// drop characters from the front (prefixed with "…") so the tail — for a
+// file path, the filename — survives.
+func truncateKeepingTail(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) <= width {
+		return s
+	}
+	if width == 1 {
+		return "…"
+	}
+	r := []rune(s)
+	keep := width - 1
+	if keep > len(r) {
+		keep = len(r)
+	}
+	return "…" + string(r[len(r)-keep:])
 }
 
 func statusMarker(s FileStatus) string {
@@ -143,35 +244,6 @@ func unresolvedCount(comments []Comment, file string) int {
 }
 
 func (m model) renderDiff() string {
-	rows := m.currentRows()
-	file := m.files[m.fileIndex].file
-
-	var b strings.Builder
-	for i, row := range rows {
-		if row.kind == rowHunkHeader {
-			b.WriteString(styleHunk.Render("@@ " + row.hunkHeader))
-			b.WriteString("\n")
-			continue
-		}
-
-		text := renderLine(row.line)
-		if i == m.lineIndex {
-			text = styleCursor.Render(text)
-		}
-		b.WriteString(text)
-		b.WriteString("\n")
-
-		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
-			b.WriteString(renderComment(c))
-			b.WriteString("\n")
-		}
-
-		if m.mode == modeComment && i == m.lineIndex {
-			b.WriteString(m.renderCommentEditor())
-			b.WriteString("\n")
-		}
-	}
-
 	innerW := m.width - sidebarWidth - borderOverheadW
 	if innerW < 1 {
 		innerW = 1
@@ -180,13 +252,50 @@ func (m model) renderDiff() string {
 	if innerH < 1 {
 		innerH = 1
 	}
+
+	lines, cursorLine := m.buildDiffLines()
+	scroll := clampScroll(cursorLine, len(lines), innerH)
+	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
+	for i, l := range window {
+		window[i] = fitLine(l, innerW)
+	}
+
 	return lipgloss.NewStyle().
 		Border(panelBorder).
 		BorderForeground(colorBorder).
 		Padding(0, 1).
-		Width(innerW).
-		Height(innerH).
-		Render(b.String())
+		Render(strings.Join(window, "\n"))
+}
+
+// buildDiffLines flattens the current file's rows (plus any comments and,
+// if active, the inline comment editor) into individually-addressable
+// render lines, and reports which line the cursor is "on" so the caller can
+// scroll to keep it in view.
+func (m model) buildDiffLines() (lines []string, cursorLine int) {
+	rows := m.currentRows()
+	file := m.files[m.fileIndex].file
+
+	for i, row := range rows {
+		if row.kind == rowHunkHeader {
+			lines = append(lines, styleHunk.Render("@@ "+row.hunkHeader))
+			continue
+		}
+
+		text := renderLine(row.line)
+		if i == m.lineIndex {
+			cursorLine = len(lines)
+			text = styleCursor.Render(text)
+		}
+		lines = append(lines, text)
+
+		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
+			lines = append(lines, renderComment(c))
+		}
+		if m.mode == modeComment && i == m.lineIndex {
+			lines = append(lines, strings.Split(m.renderCommentEditor(), "\n")...)
+		}
+	}
+	return lines, cursorLine
 }
 
 // renderCommentEditor is the inline "leave a comment" box shown directly
@@ -197,22 +306,16 @@ func (m model) renderCommentEditor() string {
 	if width < 10 {
 		width = 10
 	}
+	label := "comment: "
+	// Keep the tail of what's typed visible (not the start) as input grows
+	// past the box — and truncate before rendering, not after, since Width()
+	// would otherwise wrap rather than clip an overlong line.
+	input := truncateKeepingTail(m.input, width-2-lipgloss.Width(label)-1)
 	style := lipgloss.NewStyle().
 		Border(panelBorder).
 		BorderForeground(colorAccent).
-		Padding(0, 1).
-		Width(width)
-	return style.Render(styleComment.Render("comment: ") + m.input + "█")
-}
-
-// bodyHeight is the vertical space left for the sidebar+diff row after the
-// header and footer.
-func (m model) bodyHeight() int {
-	h := m.height - 4 // 2 header lines + 1 footer line + slack
-	if h < 3 {
-		h = 3
-	}
-	return h
+		Padding(0, 1)
+	return style.Render(styleComment.Render(label) + input + "█")
 }
 
 func renderLine(l Line) string {
@@ -250,5 +353,5 @@ func (m model) renderFooter() string {
 	if m.status != "" {
 		return styleMuted.Render(m.status)
 	}
-	return styleMuted.Render("j/k move · tab/[ file · gg/G top/bottom · c comment · d delete · r resolve · e export · q quit")
+	return styleMuted.Render("j/k move · tab/[ file · gg/G top/bottom · c comment · d delete · r resolve · e export · y/Y copy · q quit")
 }

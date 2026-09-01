@@ -106,6 +106,24 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "exported to " + path
 		}
+
+	case keyMatches(msg, k.CopyMarkdown):
+		if err := copyToClipboard(renderMarkdown(m.session, m.diffFiles())); err != nil {
+			m.err = err
+		} else {
+			m.status = "copied review (markdown) to clipboard"
+		}
+
+	case keyMatches(msg, k.CopyJSON):
+		data, err := renderJSON(m.session)
+		if err == nil {
+			err = copyToClipboard(string(data))
+		}
+		if err != nil {
+			m.err = err
+		} else {
+			m.status = "copied review (json) to clipboard"
+		}
 	}
 
 	return m, nil
