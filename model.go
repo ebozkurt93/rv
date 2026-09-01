@@ -234,6 +234,31 @@ func (m model) currentLine() (Line, bool) {
 	return row.line, true
 }
 
+// currentLineLabel describes where the cursor is within the current file —
+// "42" for a line (preferring the new-side number, since that's the file
+// as it exists now; falling back to old-side for a removed line, which has
+// no new-side position), or "hunk" when it's sitting on a hunk header.
+// Shown in the header so jumping around (}/{ especially) always tells you
+// where you landed, independent of whether the line-number gutter (#) is
+// even on.
+func (m model) currentLineLabel() string {
+	rows := m.currentRows()
+	if m.lineIndex < 0 || m.lineIndex >= len(rows) {
+		return ""
+	}
+	row := rows[m.lineIndex]
+	if row.kind == rowHunkHeader {
+		return "hunk"
+	}
+	if row.line.NewLine != nil {
+		return strconv.Itoa(*row.line.NewLine)
+	}
+	if row.line.OldLine != nil {
+		return strconv.Itoa(*row.line.OldLine)
+	}
+	return ""
+}
+
 // commentsForCurrentLine returns comments anchored to the cursor's current
 // line (matched by file + whichever of old/new line the comment carries).
 func (m model) commentsForCurrentLine() []Comment {

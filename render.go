@@ -112,8 +112,13 @@ func (m model) renderHeader() string {
 	}
 
 	// The sidebar truncates long paths for space; show the selected file's
-	// full path here, where a whole terminal width is available for it.
+	// full path here, where a whole terminal width is available for it —
+	// plus where the cursor currently is, so jumping around (}/{ especially)
+	// always confirms where you landed regardless of whether # is on.
 	selected := m.files[m.fileIndex].file.Path
+	if label := m.currentLineLabel(); label != "" {
+		selected += styleMuted.Render(" :" + label)
+	}
 	path := fitLine(styleSelected.Render("▸ ")+selected, width)
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }

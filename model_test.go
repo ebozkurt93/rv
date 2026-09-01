@@ -88,3 +88,26 @@ func TestSetDiffFilesEmptyResultResetsCursor(t *testing.T) {
 		t.Fatalf("expected empty state, got files=%d lineIndex=%d", len(m.files), m.lineIndex)
 	}
 }
+
+func TestCurrentLineLabel(t *testing.T) {
+	m := newModel("/repo", []FileDiff{fileDiffWithHunks("a.go", 3, 5)}, Session{}, nil)
+
+	if got := m.currentLineLabel(); got != "hunk" {
+		t.Fatalf("expected 'hunk' on a hunk-header row, got %q", got)
+	}
+
+	m.lineIndex = 1 // first content line of hunk 1 -> new-line 1
+	if got := m.currentLineLabel(); got != "1" {
+		t.Fatalf("expected '1', got %q", got)
+	}
+
+	// rows: 0=hdr,1-3=lines(1-3),4=hdr,5-9=lines(4-8)
+	m.lineIndex = 4
+	if got := m.currentLineLabel(); got != "hunk" {
+		t.Fatalf("expected 'hunk' on the 2nd hunk's header, got %q", got)
+	}
+	m.lineIndex = 5
+	if got := m.currentLineLabel(); got != "4" {
+		t.Fatalf("expected '4' (first line of the 2nd hunk), got %q", got)
+	}
+}
