@@ -138,9 +138,10 @@ they land, with the commit that did it.
       rounded-border box under the line — wanted instead: something that
       doesn't look like a boxed dialog (likely a plain inline row matching
       how existing comments/replies already render, no border).
-- [ ] **`?` help overlay needs to scroll.** renderHelp truncates via
-      fitBlock instead of scrolling — on a short terminal, entries past the
-      visible height are silently cut off rather than reachable.
+- [x] **`?` help overlay needs to scroll.** `j`/`k`/`ctrl+d`/`ctrl+u` scroll
+      a window over the flattened help lines (`helpScroll`, reset each time
+      the overlay opens), clamped at either end — entries past one screen's
+      height are reachable instead of silently cut off.
 - [x] **Cursor-line highlight only covers the gutter, not the whole line.**
       Fixed as part of syntax highlighting: the cursor row now picks a
       dedicated chroma style (bright-black background baked into every
