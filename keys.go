@@ -74,7 +74,7 @@ func defaultKeymap() Keymap {
 		Cancel:            []string{"esc"},
 		Backspace:         []string{"backspace"},
 		CommentNewline:    []string{"alt+enter"},
-		CommentEditor:     []string{"ctrl+e"},
+		CommentEditor:     []string{"alt+e"},
 	}
 }
 
