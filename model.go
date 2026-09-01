@@ -148,6 +148,34 @@ func (m model) diffLabel() string {
 	return strings.Join(m.diffSpec, " ")
 }
 
+// diffStats totals added/removed lines across every file in the diff —
+// shown in the header as a whole-diff summary (e.g. "+123 -45"), the same
+// stat GitHub/most git tools show for a whole PR/commit.
+func (m model) diffStats() (added, removed int) {
+	for _, fr := range m.files {
+		a, r := fileDiffStats(fr.file)
+		added += a
+		removed += r
+	}
+	return added, removed
+}
+
+// fileDiffStats is diffStats' per-file counterpart, shown next to each
+// sidebar row and for whichever file is currently selected.
+func fileDiffStats(fd FileDiff) (added, removed int) {
+	for _, h := range fd.Hunks {
+		for _, l := range h.Lines {
+			switch l.Kind {
+			case LineAdded:
+				added++
+			case LineRemoved:
+				removed++
+			}
+		}
+	}
+	return added, removed
+}
+
 // The cursor must never rest on a rowHunkHeader — you can't comment on a
 // header, so stopping there is always a dead end that costs an extra
 // keypress. Every path that sets lineIndex funnels through one of these

@@ -93,7 +93,9 @@ func (m model) renderHeader() string {
 		}
 	}
 
-	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel())
+	added, removed := m.diffStats()
+	stats := styleAdded.Render(fmt.Sprintf("+%d", added)) + " " + styleRemoved.Render(fmt.Sprintf("-%d", removed))
+	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel()+" · ") + stats
 	countsText := fmt.Sprintf("%d/%d file(s) reviewed, %d comment(s), %d unresolved", reviewedCount, len(m.files), total, unresolved)
 	if m.fileFilter != "" {
 		shown := len(m.visibleFileIndices(m.fileFilter))
@@ -127,13 +129,25 @@ func (m model) renderHeader() string {
 	// visible — reserve its space first, then truncate only the path
 	// (keeping the path's own tail — the filename — via truncateKeepingTail).
 	prefix := "▸ "
+	selFile := m.files[m.fileIndex].file
 	label := ""
 	if l := m.currentLineLabel(); l != "" {
 		label = " :" + l
 	}
-	avail := width - lipgloss.Width(prefix) - lipgloss.Width(label)
-	truncatedPath := truncateKeepingTail(m.files[m.fileIndex].file.Path, avail)
-	path := fitLine(styleSelected.Render(prefix)+truncatedPath+styleMuted.Render(label), width)
+	selAdded, selRemoved := fileDiffStats(selFile)
+	statsLabel := ""
+	if selAdded > 0 || selRemoved > 0 {
+		statsLabel = fmt.Sprintf(" +%d -%d", selAdded, selRemoved)
+	}
+
+	avail := width - lipgloss.Width(prefix) - lipgloss.Width(label) - lipgloss.Width(statsLabel)
+	truncatedPath := truncateKeepingTail(selFile.Path, avail)
+
+	styledLabel := styleMuted.Render(label)
+	if statsLabel != "" {
+		styledLabel += styleAdded.Render(fmt.Sprintf(" +%d", selAdded)) + styleRemoved.Render(fmt.Sprintf(" -%d", selRemoved))
+	}
+	path := fitLine(styleSelected.Render(prefix)+truncatedPath+styledLabel, width)
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }
 
@@ -251,13 +265,16 @@ func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, widt
 	if reviewed {
 		check = styleAdded.Render("✓")
 	}
-	suffix := ""
+
+	unresolvedText := ""
 	if unresolved > 0 {
-		suffix = fmt.Sprintf(" (%d)", unresolved)
+		unresolvedText = fmt.Sprintf(" (%d)", unresolved)
 	}
 
-	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - lipgloss.Width(check) - 1 - lipgloss.Width(suffix)
+	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - lipgloss.Width(check) - 1 - lipgloss.Width(unresolvedText)
 	path := truncateKeepingTail(fr.file.Path, avail)
+
+	styledSuffix := styleComment.Render(unresolvedText)
 
 	// Concatenate independently-rendered segments rather than nesting one
 	// Style.Render call inside another — nesting would let the inner
@@ -269,13 +286,13 @@ func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, widt
 		if reviewed {
 			pathPart = styleMuted.Render(" " + path)
 		}
-		return styleSelected.Render(prefix) + marker + check + pathPart + styleComment.Render(suffix)
+		return styleSelected.Render(prefix) + marker + check + pathPart + styledSuffix
 	}
 	pathPart := path
 	if reviewed {
 		pathPart = styleMuted.Render(path)
 	}
-	return prefix + marker + check + " " + pathPart + styleComment.Render(suffix)
+	return prefix + marker + check + " " + pathPart + styledSuffix
 }
 
 // truncateKeepingTail truncates s to at most width cells, preferring to
