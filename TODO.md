@@ -9,9 +9,10 @@ they land, with the commit that did it.
       `rv HEAD~3`, etc. — instead of hardcoding `HEAD`. The header shows
       what you're diffing against (`vs HEAD`, `vs main..feature`, ...), and
       `R` re-diffs against the same spec.
-- [ ] **Open in `$EDITOR`.** No way to jump from the line under the cursor
-      into an actual editor to make a change while reviewing. Standard in
-      lazygit/tig/gh.
+- [x] **Open in `$EDITOR`.** `o` suspends the TUI and opens the file under
+      the cursor at that line, via `$VISUAL`/`$EDITOR`/`vi` (matching git's
+      own fallback chain) — `+N file` for terminal editors, `-g file:N` for
+      VS Code.
 - [ ] **Hunk-level jump.** Movement is line-by-line only (`j`/`k`) — no
       `}`/`{` to jump to the next/prev hunk, which gets tedious on large
       diffs.

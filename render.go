@@ -369,5 +369,5 @@ func (m model) renderFooter() string {
 	if m.status != "" {
 		return styleMuted.Render(m.status)
 	}
-	return styleMuted.Render("j/k move · tab/[ file · gg/G top/bottom · c comment · d delete · r resolve · R refresh · e export · y/Y copy · q quit")
+	return styleMuted.Render("j/k move · tab/[ file · gg/G top/bottom · c comment · d delete · r resolve · o edit · R refresh · e export · y/Y copy · q quit")
 }

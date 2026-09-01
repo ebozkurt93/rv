@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -26,6 +27,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPollMsg:
 		m.refreshSessionIfChanged()
 		return m, pollSessionCmd()
+	case editorClosedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.status = "back from editor"
+		}
+		return m, nil
 	case tea.KeyMsg:
 		if m.mode == modeComment {
 			return m.updateComment(msg)
@@ -151,6 +159,12 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.ToggleResolved):
 		m.toggleResolvedUnderCursor()
+
+	case keyMatches(msg, k.OpenEditor):
+		if line, ok := m.currentLine(); ok {
+			path := filepath.Join(m.repoRoot, m.files[m.fileIndex].file.Path)
+			return m, openInEditorCmd(path, editorLineFor(line))
+		}
 
 	case keyMatches(msg, k.Refresh):
 		m.refreshAll()
