@@ -115,11 +115,18 @@ func (m model) renderHeader() string {
 	// full path here, where a whole terminal width is available for it —
 	// plus where the cursor currently is, so jumping around (}/{ especially)
 	// always confirms where you landed regardless of whether # is on.
-	selected := m.files[m.fileIndex].file.Path
-	if label := m.currentLineLabel(); label != "" {
-		selected += styleMuted.Render(" :" + label)
+	// fitLine truncates from the tail, so a line-number suffix appended
+	// after a long path would just get cut off and never actually be
+	// visible — reserve its space first, then truncate only the path
+	// (keeping the path's own tail — the filename — via truncateKeepingTail).
+	prefix := "▸ "
+	label := ""
+	if l := m.currentLineLabel(); l != "" {
+		label = " :" + l
 	}
-	path := fitLine(styleSelected.Render("▸ ")+selected, width)
+	avail := width - lipgloss.Width(prefix) - lipgloss.Width(label)
+	truncatedPath := truncateKeepingTail(m.files[m.fileIndex].file.Path, avail)
+	path := fitLine(styleSelected.Render(prefix)+truncatedPath+styleMuted.Render(label), width)
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }
 

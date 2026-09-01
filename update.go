@@ -363,11 +363,31 @@ func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
 // sign to switch files than to loop back to the first one).
 func (m *model) jumpToHunk(dir int) {
 	rows := m.currentRows()
-	for i := m.lineIndex + dir; i >= 0 && i < len(rows); i += dir {
-		if rows[i].kind == rowHunkHeader {
-			m.lineIndex = i
-			return
+	i := m.lineIndex
+	for {
+		i += dir
+		if i < 0 || i >= len(rows) {
+			return // no more hunks that direction — no-op
 		}
+		if rows[i].kind != rowHunkHeader {
+			continue
+		}
+		// Land on the hunk's first line, not the header itself — a header
+		// can't be commented on, so stopping there just costs you an extra
+		// j/k every time. If that first line is where we already are (we're
+		// searching backward and just hit our own hunk's header, since
+		// we're normally sitting right after it), keep looking past it —
+		// otherwise "{" would look like a no-op instead of moving to the
+		// previous hunk.
+		target := i
+		if next := i + 1; next < len(rows) && rows[next].kind == rowLine {
+			target = next
+		}
+		if target == m.lineIndex {
+			continue
+		}
+		m.lineIndex = target
+		return
 	}
 }
 

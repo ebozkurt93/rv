@@ -46,21 +46,21 @@ func TestJumpToHunkForwardAndBackward(t *testing.T) {
 	m.lineIndex = 0
 
 	m.jumpToHunk(1)
-	if m.lineIndex != 3 {
-		t.Fatalf("expected jump to hunk 2 header at row 3, got %d", m.lineIndex)
+	if m.lineIndex != 4 {
+		t.Fatalf("expected jump to hunk 2's first line at row 4, got %d", m.lineIndex)
 	}
 	m.jumpToHunk(1)
-	if m.lineIndex != 7 {
-		t.Fatalf("expected jump to hunk 3 header at row 7, got %d", m.lineIndex)
+	if m.lineIndex != 8 {
+		t.Fatalf("expected jump to hunk 3's first line at row 8, got %d", m.lineIndex)
 	}
 	m.jumpToHunk(1) // no more hunks forward — should stay put
-	if m.lineIndex != 7 {
+	if m.lineIndex != 8 {
 		t.Fatalf("expected no-op past the last hunk, got %d", m.lineIndex)
 	}
 
 	m.jumpToHunk(-1)
-	if m.lineIndex != 3 {
-		t.Fatalf("expected jump back to hunk 2 header at row 3, got %d", m.lineIndex)
+	if m.lineIndex != 4 {
+		t.Fatalf("expected jump back to hunk 2's first line at row 4, got %d", m.lineIndex)
 	}
 }
 
