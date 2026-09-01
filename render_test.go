@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -122,6 +123,35 @@ func TestCommentEditorHasNoBorder(t *testing.T) {
 // always render muted regardless of resolved status, which read as "this
 // thread is still resolved" even right after un-resolving it. It should
 // only be muted when the thread actually is resolved.
+// TestCommentContinuationLineAlignsUnderAuthor guards a real off-by-one:
+// the comment icon "💬" is a wide (2-cell) glyph, so a hand-counted
+// continuation-line indent silently landed one column short — under the
+// icon instead of under "author:" like the first line starts. The
+// continuation indent must match the icon prefix's actual rendered width.
+func TestCommentContinuationLineAlignsUnderAuthor(t *testing.T) {
+	c := Comment{Author: "user", Body: "first line\nsecond line"}
+	rendered := renderComment(c)
+	rows := strings.Split(rendered, "\n")
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rendered rows, got %d: %v", len(rows), rows)
+	}
+
+	// Measured in terminal cells (ansi.StringWidth), not bytes — the icon
+	// prefix contains multi-byte runes ("▏", the icon itself), so a
+	// byte-offset comparison would overcount relative to actual columns and
+	// falsely fail even when the rendering is correctly aligned.
+	byteIdx := strings.Index(rows[0], "user:")
+	if byteIdx < 0 {
+		t.Fatalf("expected %q to contain the author label", rows[0])
+	}
+	firstLineIndent := ansi.StringWidth(rows[0][:byteIdx])
+	contIndent := ansi.StringWidth(rows[1]) - ansi.StringWidth(strings.TrimLeft(rows[1], " "))
+	if contIndent != firstLineIndent {
+		t.Fatalf("expected continuation indent (%d cells) to match where the author label starts (%d cells): %q / %q",
+			contIndent, firstLineIndent, rows[0], rows[1])
+	}
+}
+
 func TestReplyStyleReflectsThreadResolution(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.ANSI)
 	defer lipgloss.SetColorProfile(termenv.Ascii)

@@ -41,15 +41,17 @@ func TestTogglesPersistAcrossNewModel(t *testing.T) {
 	mm, _ = m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("#")})
 	m3 := mm.(model)
 	mm, _ = m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m3b := mm.(model)
+	mm, _ = m3b.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("C")})
 	m4 := mm.(model)
 
-	if !m4.sidebarHidden || m4.showLineNumbers || !m4.wrapLines {
-		t.Fatalf("expected all three flipped from their defaults, got %+v", m4.uiPrefs())
+	if !m4.sidebarHidden || m4.showLineNumbers || !m4.wrapLines || !m4.commentNavIncludeResolved {
+		t.Fatalf("expected all four flipped from their defaults, got %+v", m4.uiPrefs())
 	}
 
 	// A fresh model (as if rv were relaunched) should pick up what was saved.
 	reopened := newModel("/repo", nil, Session{}, nil)
-	if !reopened.sidebarHidden || reopened.showLineNumbers || !reopened.wrapLines {
+	if !reopened.sidebarHidden || reopened.showLineNumbers || !reopened.wrapLines || !reopened.commentNavIncludeResolved {
 		t.Fatalf("expected persisted prefs to carry over, got %+v", reopened.uiPrefs())
 	}
 }

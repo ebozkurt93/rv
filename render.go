@@ -741,7 +741,8 @@ func (m model) renderCommentEditor() string {
 	if m.replyingToCommentID != "" {
 		icon = "↩" // appending a new reply to an existing thread
 	}
-	firstPrefix, contPrefix := "  ▏"+icon+" ", "     "
+	firstPrefix := "  ▏" + icon + " "
+	contPrefix := strings.Repeat(" ", ansi.StringWidth(firstPrefix))
 	inputLines := strings.Split(m.input, "\n")
 	rendered := make([]string, len(inputLines))
 	for i, l := range inputLines {
@@ -850,7 +851,14 @@ func lineNumStr(n *int) string {
 // splits back on "\n" into separate rendered rows, exactly like
 // renderCommentEditor does for a multi-line comment still being typed.
 func renderComment(c Comment) string {
-	text := commentBodyLines("  ▏💬 "+c.Author+": ", "     ", c.Body)
+	// "●" rather than an emoji like "💬": emoji cell-width genuinely varies
+	// by terminal/font (some render 2 cells, some 1), so no single computed
+	// padding width can align a continuation line under "author:" correctly
+	// everywhere — one specific terminal will always disagree. A plain
+	// geometric symbol like this renders as exactly 1 cell everywhere,
+	// removing the ambiguity instead of trying to compensate for it.
+	icon := "  ▏● "
+	text := commentBodyLines(icon+c.Author+": ", strings.Repeat(" ", ansi.StringWidth(icon)), c.Body)
 	if c.Resolved {
 		return styleResolved.Render(text + " (resolved)")
 	}
@@ -862,7 +870,8 @@ func renderComment(c Comment) string {
 // still open" reads clearly at a glance rather than every reply always
 // looking the same shade of gray regardless of status.
 func renderReply(r Reply, threadResolved bool) string {
-	text := commentBodyLines("    └─ "+r.Author+": ", "       ", r.Body)
+	icon := "    └─ "
+	text := commentBodyLines(icon+r.Author+": ", strings.Repeat(" ", ansi.StringWidth(icon)), r.Body)
 	if threadResolved {
 		return styleMuted.Render(text)
 	}
@@ -891,7 +900,10 @@ func firstKey(keys []string) string {
 
 func (m model) renderFooter() string {
 	if m.mode == modeComment {
-		return styleMuted.Render("enter save · esc cancel")
+		k := m.keys
+		hint := fmt.Sprintf("%s save · %s cancel · %s newline · %s edit in $EDITOR",
+			firstKey(k.Confirm), firstKey(k.Cancel), firstKey(k.CommentNewline), firstKey(k.CommentEditor))
+		return styleMuted.Render(hint)
 	}
 	if m.mode == modeSearch {
 		return "/" + m.input + "█"

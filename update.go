@@ -265,6 +265,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpToComment(-1)
 	case keyMatches(msg, k.ToggleCommentScope):
 		m.commentNavIncludeResolved = !m.commentNavIncludeResolved
+		m.persistUIPrefs()
 		if m.commentNavIncludeResolved {
 			m.status = "n/N now include resolved comments"
 		} else {

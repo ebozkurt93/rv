@@ -11,9 +11,11 @@ import (
 // the TUI looks," so a user doesn't have to re-toggle the sidebar or line
 // numbers every time they open rv somewhere new.
 type uiPrefs struct {
-	SidebarHidden   bool `json:"sidebar_hidden"`
-	ShowLineNumbers bool `json:"show_line_numbers"`
-	WrapLines       bool `json:"wrap_lines"`
+	SidebarHidden             bool `json:"sidebar_hidden"`
+	ShowLineNumbers           bool `json:"show_line_numbers"`
+	WrapLines                 bool `json:"wrap_lines"`
+	ShowUntracked             bool `json:"show_untracked"`
+	CommentNavIncludeResolved bool `json:"comment_nav_include_resolved"`
 }
 
 func defaultUIPrefs() uiPrefs {
