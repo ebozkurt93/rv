@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// configDir follows the XDG convention (unlike cacheDir, which mirrors
-// tmux-mover's plain ~/.cache/<name> — config and cache are different
-// concerns with different expectations: config is meant to be
-// hand-edited and versioned, cache is disposable).
+// configDir follows the XDG convention (unlike cacheDir, which uses a plain
+// ~/.cache/<name> — config and cache are different concerns with different
+// expectations: config is meant to be hand-edited and versioned, cache is
+// disposable).
 func configDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "rv")

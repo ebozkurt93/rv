@@ -4,8 +4,7 @@ import tea "charm.land/bubbletea/v2"
 
 // Keymap follows vim conventions throughout: j/k for line movement, gg/G for
 // jump-to-top/bottom, and single-letter mnemonics for actions (c)omment,
-// (d)elete, (r)esolve, (e)xport — chosen to match tmux-mover's Keymap-of-
-// key-lists shape (keys.go here plays the same role as its keys.go).
+// (d)elete, (r)esolve, (e)xport.
 type Keymap struct {
 	Quit               []string
 	MoveDown           []string

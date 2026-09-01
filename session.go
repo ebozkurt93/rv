@@ -58,9 +58,9 @@ type Reply struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// cacheDir returns ~/.cache/rv, matching tmux-mover's ~/.cache/<name>
-// convention (a plain $HOME join rather than os.UserCacheDir, so behavior is
-// predictable and inspectable rather than platform-dependent).
+// cacheDir returns ~/.cache/rv (a plain $HOME join rather than
+// os.UserCacheDir, so behavior is predictable and inspectable rather than
+// platform-dependent).
 func cacheDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".cache", "rv")
 }

@@ -79,9 +79,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateHelp handles input while the help overlay is open: the keys that
 // could plausibly mean "close this" do so, movement keys scroll the list
-// (it can run past one screen — see the "?" help overlay TODO item), and
-// anything else is ignored so a stray keypress while skimming can't
-// accidentally trigger some other action.
+// (it can run past one screen), and anything else is ignored so a stray
+// keypress while skimming can't accidentally trigger some other action.
 func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	switch {
