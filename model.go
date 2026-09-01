@@ -12,6 +12,7 @@ type mode int
 const (
 	modeNormal mode = iota
 	modeComment
+	modeHelp
 )
 
 // rowKind distinguishes the two kinds of row the diff pane can show.

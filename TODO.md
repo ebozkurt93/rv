@@ -21,8 +21,10 @@ they land, with the commit that did it.
       around at either end. Resolved comments are skipped.
 - [ ] **Search/filter.** No `/` to jump to a file by name or search diff
       content. Sidebar just lists everything with no way to narrow it down.
-- [ ] **Help overlay.** No `?` screen — the footer hint line is the only
-      reference and it's already crowded with ~10 bindings.
+- [x] **Help overlay.** `?` (or `esc`) opens/closes a full keybinding
+      reference, grouped by Movement/Comments/Other. Footer trimmed back
+      down to the essentials + "? help" now that it doesn't need to carry
+      every binding.
 - [ ] **Config file / remappable keybindings.** `defaultKeymap()` is
       hardcoded; no way to customize.
 - [ ] **Watch/auto-reload.** Only reloads on manual `R` or the 1s

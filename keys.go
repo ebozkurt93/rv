@@ -28,6 +28,7 @@ type Keymap struct {
 	Export         []string
 	CopyMarkdown   []string
 	CopyJSON       []string
+	Help           []string
 	Confirm        []string
 	Cancel         []string
 	Backspace      []string
@@ -56,6 +57,7 @@ func defaultKeymap() Keymap {
 		Export:         []string{"e"},
 		CopyMarkdown:   []string{"y"},
 		CopyJSON:       []string{"Y"},
+		Help:           []string{"?"},
 		Confirm:        []string{"enter"},
 		Cancel:         []string{"esc"},
 		Backspace:      []string{"backspace"},

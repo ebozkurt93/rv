@@ -47,6 +47,10 @@ var (
 func (m model) View() string {
 	header := m.renderHeader()
 
+	if m.mode == modeHelp {
+		return lipgloss.JoinVertical(lipgloss.Left, header, m.renderHelp(), m.renderFooter())
+	}
+
 	if len(m.files) == 0 {
 		empty := lipgloss.NewStyle().Padding(2, 4).Render(styleMuted.Render("No changes vs HEAD."))
 		return lipgloss.JoinVertical(lipgloss.Left, header, empty, m.renderFooter())
@@ -313,6 +317,66 @@ func (m model) buildDiffLines() (lines []string, cursorLine int) {
 // renderCommentEditor is the inline "leave a comment" box shown directly
 // beneath the line it will be anchored to, rather than in the footer, so the
 // comment stays visually attached to the code it's about.
+// helpLines is the full keybinding reference shown by the ? overlay. Kept
+// as a plain list here rather than derived from Keymap so it can group and
+// annotate bindings (counts, wrapping behavior, etc.) in a way a bare
+// key-to-action map can't.
+var helpLines = []string{
+	"Movement",
+	"  j / down          move down            (10j moves down 10)",
+	"  k / up            move up",
+	"  ctrl+d / ctrl+u   half page down / up",
+	"  gg / G            jump to top / bottom  ({count}gg or {count}G → that line)",
+	"  } / {             next / prev hunk (current file only)",
+	"  n / N             next / prev unresolved comment (across files, wraps)",
+	"  tab / ]           next file",
+	"  shift+tab / [     prev file",
+	"",
+	"Comments",
+	"  c                 add a comment on the line under the cursor",
+	"  d                 delete the comment under the cursor",
+	"  r                 toggle resolved",
+	"",
+	"Other",
+	"  o                 open the file under the cursor in $EDITOR",
+	"  R                 refresh (re-read the diff and session)",
+	"  e                 export the review to a markdown file",
+	"  y / Y             copy the review to the clipboard (markdown / JSON)",
+	"  ?                 toggle this help",
+	"  q / ctrl+c        quit",
+}
+
+func (m model) renderHelp() string {
+	innerW := m.width - borderOverheadW
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := m.bodyHeight() - borderOverheadH
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	lines := make([]string, len(helpLines))
+	for i, l := range helpLines {
+		if l != "" && !strings.HasPrefix(l, "  ") {
+			lines[i] = styleTitle.Render(l)
+		} else {
+			lines[i] = l
+		}
+	}
+
+	window := fitBlock(lines, innerH)
+	for i, l := range window {
+		window[i] = fitLine(l, innerW)
+	}
+
+	return lipgloss.NewStyle().
+		Border(panelBorder).
+		BorderForeground(colorBorder).
+		Padding(0, 1).
+		Render(strings.Join(window, "\n"))
+}
+
 func (m model) renderCommentEditor() string {
 	width := m.width - sidebarWidth - borderOverheadW - 4
 	if width < 10 {
@@ -369,5 +433,5 @@ func (m model) renderFooter() string {
 	if m.status != "" {
 		return styleMuted.Render(m.status)
 	}
-	return styleMuted.Render("j/k move · }/{ hunk · n/N comment · tab/[ file · c comment · d delete · r resolve · o edit · e export · q quit")
+	return styleMuted.Render("j/k move · c comment · o edit · q quit · ? help")
 }

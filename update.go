@@ -36,10 +36,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if m.mode == modeComment {
+		switch m.mode {
+		case modeComment:
 			return m.updateComment(msg)
+		case modeHelp:
+			return m.updateHelp(msg)
+		default:
+			return m.updateNormal(msg)
 		}
-		return m.updateNormal(msg)
+	}
+	return m, nil
+}
+
+// updateHelp handles input while the help overlay is open: only the keys
+// that could plausibly mean "close this" do anything, so a stray keypress
+// while skimming the list can't accidentally trigger some other action.
+func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if keyMatches(msg, m.keys.Help) || keyMatches(msg, m.keys.Cancel) || keyMatches(msg, m.keys.Quit) {
+		m.mode = modeNormal
 	}
 	return m, nil
 }
@@ -183,6 +197,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.Refresh):
 		m.refreshAll()
+
+	case keyMatches(msg, k.Help):
+		m.mode = modeHelp
 
 	case keyMatches(msg, k.Export):
 		if path, err := exportSession(m.repoRoot, m.session, m.diffFiles(), formatMarkdown); err != nil {
