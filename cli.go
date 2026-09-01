@@ -15,6 +15,10 @@ func run(args []string) error {
 	case "version", "--version", "-v":
 		fmt.Println("rv", version)
 		return nil
+	case "session":
+		return runSession(args[1:])
+	case "comment":
+		return runComment(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}

@@ -299,6 +299,9 @@ func (m model) buildDiffLines() (lines []string, cursorLine int) {
 
 		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
 			lines = append(lines, renderComment(c))
+			for _, r := range c.Replies {
+				lines = append(lines, renderReply(r))
+			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
 			lines = append(lines, strings.Split(m.renderCommentEditor(), "\n")...)
@@ -342,11 +345,15 @@ func renderLine(l Line) string {
 }
 
 func renderComment(c Comment) string {
-	text := "  ▏💬 " + c.Body
+	text := "  ▏💬 " + c.Author + ": " + c.Body
 	if c.Resolved {
 		return styleResolved.Render(text + " (resolved)")
 	}
 	return styleComment.Render(text)
+}
+
+func renderReply(r Reply) string {
+	return styleMuted.Render("    └─ " + r.Author + ": " + r.Body)
 }
 
 func (m model) renderFooter() string {

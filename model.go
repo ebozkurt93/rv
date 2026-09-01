@@ -1,6 +1,10 @@
 package main
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 type mode int
 
@@ -63,6 +67,11 @@ type model struct {
 	err    error
 
 	keys Keymap
+
+	// sessionMTime is the on-disk session's last-seen mtime, used to detect
+	// changes made by another process (e.g. an agent running `rv comment
+	// reply`) while this TUI instance is sitting open — see pollSessionCmd.
+	sessionMTime time.Time
 }
 
 func newModel(repoRoot string, diffFiles []FileDiff, session Session) model {
@@ -70,15 +79,19 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session) model {
 	for _, fd := range diffFiles {
 		files = append(files, flattenFile(fd))
 	}
-	return model{
+	m := model{
 		repoRoot: repoRoot,
 		files:    files,
 		session:  session,
 		keys:     defaultKeymap(),
 	}
+	if mt, err := sessionModTime(repoRoot); err == nil {
+		m.sessionMTime = mt
+	}
+	return m
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return pollSessionCmd() }
 
 // currentRows returns the rows for the currently selected file, or nil if
 // there are no changed files.

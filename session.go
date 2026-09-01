@@ -30,8 +30,19 @@ type Comment struct {
 	OldLine   *int      `json:"old_line,omitempty"`
 	NewLine   *int      `json:"new_line,omitempty"`
 	Body      string    `json:"body"`
-	Author    string    `json:"author"` // "user" today; room for "agent" later
+	Author    string    `json:"author"` // "user" (left in the TUI) or "agent" (left via `rv comment reply`)
 	Resolved  bool      `json:"resolved"`
+	CreatedAt time.Time `json:"created_at"`
+	Replies   []Reply   `json:"replies,omitempty"`
+}
+
+// Reply is a threaded response to a Comment — how an agent talks back
+// ("fixed, see foo.go:12" or similar) without the reply itself needing its
+// own line anchor.
+type Reply struct {
+	ID        string    `json:"id"`
+	Body      string    `json:"body"`
+	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -61,7 +72,16 @@ func sessionLockPath(repoRoot string) string {
 // newCommentID returns a short random, collision-safe-enough id for a
 // comment created within a single session.
 func newCommentID() string {
+	return "c_" + randomHex()
+}
+
+// newReplyID is newCommentID's counterpart for Reply.ID.
+func newReplyID() string {
+	return "r_" + randomHex()
+}
+
+func randomHex() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
-	return "c_" + hex.EncodeToString(b[:])
+	return hex.EncodeToString(b[:])
 }

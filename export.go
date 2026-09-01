@@ -91,9 +91,12 @@ func renderMarkdown(session Session, files []FileDiff) string {
 			if c.Resolved {
 				status = " (resolved)"
 			}
-			fmt.Fprintf(&b, "- **%s:%d**%s: %s\n", file, line, status, c.Body)
+			fmt.Fprintf(&b, "- **%s:%d**%s (%s): %s\n", file, line, status, c.Author, c.Body)
 			if quoted != "" {
 				fmt.Fprintf(&b, "  ```\n  %s\n  ```\n", quoted)
+			}
+			for _, r := range c.Replies {
+				fmt.Fprintf(&b, "  - _%s_: %s\n", r.Author, r.Body)
 			}
 		}
 		b.WriteString("\n")

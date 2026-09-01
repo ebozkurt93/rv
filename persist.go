@@ -25,6 +25,22 @@ func loadSession(repoRoot string) (Session, error) {
 	return s, nil
 }
 
+// sessionModTime returns the on-disk session's last-modified time, or the
+// zero time (with no error) if it doesn't exist yet — so a caller can always
+// compare with ".After()" without special-casing "no session written yet".
+// Used by the TUI to poll for changes made by another process (e.g. an
+// agent running `rv comment reply`) while it's sitting open.
+func sessionModTime(repoRoot string) (time.Time, error) {
+	info, err := os.Stat(sessionPath(repoRoot))
+	if os.IsNotExist(err) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
+}
+
 // saveSession writes s for repoRoot, atomically: write to a temp file in the
 // same directory, then rename into place, so a concurrent reader never
 // observes a half-written file.

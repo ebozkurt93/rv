@@ -7,11 +7,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// sessionPollInterval trades off staleness against needless disk stats;
+// an agent replying to a comment shows up within this long without the
+// user having to close and reopen the TUI.
+const sessionPollInterval = time.Second
+
+type sessionPollMsg struct{}
+
+func pollSessionCmd() tea.Cmd {
+	return tea.Tick(sessionPollInterval, func(time.Time) tea.Msg { return sessionPollMsg{} })
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
+	case sessionPollMsg:
+		m.refreshSessionIfChanged()
+		return m, pollSessionCmd()
 	case tea.KeyMsg:
 		if m.mode == modeComment {
 			return m.updateComment(msg)
@@ -19,6 +33,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateNormal(msg)
 	}
 	return m, nil
+}
+
+// refreshSessionIfChanged reloads the on-disk session if its mtime has
+// moved since we last read it — i.e. some other process (typically an
+// agent running `rv comment reply`/`resolve`) has written to it since.
+func (m *model) refreshSessionIfChanged() {
+	mt, err := sessionModTime(m.repoRoot)
+	if err != nil || !mt.After(m.sessionMTime) {
+		return
+	}
+	s, err := loadSession(m.repoRoot)
+	if err != nil {
+		return
+	}
+	m.session = s
+	m.sessionMTime = mt
+	m.status = "session updated"
 }
 
 // digitRune reports whether r can extend a pending vim-style count, and the
