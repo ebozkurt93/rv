@@ -654,16 +654,11 @@ func (m model) helpRows() []helpRow {
 	}
 }
 
-func (m model) renderHelp() string {
-	innerW := m.width - borderOverheadW
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := m.bodyHeight() - borderOverheadH
-	if innerH < 1 {
-		innerH = 1
-	}
-
+// helpLines flattens helpRows() into one rendered string per line (section
+// headers get a blank-line separator above them), shared by renderHelp (to
+// display a scrolled window of them) and updateHelp (to clamp how far that
+// window can scroll) so the two can never disagree about the total count.
+func (m model) helpLines() []string {
 	var lines []string
 	for _, row := range m.helpRows() {
 		if row.section != "" {
@@ -675,8 +670,28 @@ func (m model) renderHelp() string {
 		}
 		lines = append(lines, fmt.Sprintf("  %-18s %s", strings.Join(row.keys, " / "), row.desc))
 	}
+	return lines
+}
 
-	window := fitBlock(lines, innerH)
+func (m model) renderHelp() string {
+	innerW := m.width - borderOverheadW
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := m.bodyHeight() - borderOverheadH
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	lines := m.helpLines()
+	scroll := m.helpScroll
+	if max := len(lines) - innerH; scroll > max {
+		scroll = max
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
 	for i, l := range window {
 		window[i] = fitLine(l, innerW)
 	}

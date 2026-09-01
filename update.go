@@ -57,12 +57,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateHelp handles input while the help overlay is open: only the keys
-// that could plausibly mean "close this" do anything, so a stray keypress
-// while skimming the list can't accidentally trigger some other action.
+// updateHelp handles input while the help overlay is open: the keys that
+// could plausibly mean "close this" do so, movement keys scroll the list
+// (it can run past one screen — see the "?" help overlay TODO item), and
+// anything else is ignored so a stray keypress while skimming can't
+// accidentally trigger some other action.
 func (m model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if keyMatches(msg, m.keys.Help) || keyMatches(msg, m.keys.Cancel) || keyMatches(msg, m.keys.Quit) {
+	k := m.keys
+	switch {
+	case keyMatches(msg, k.Help), keyMatches(msg, k.Cancel), keyMatches(msg, k.Quit):
 		m.mode = modeNormal
+	case keyMatches(msg, k.MoveDown):
+		m.helpScroll++
+	case keyMatches(msg, k.MoveUp):
+		if m.helpScroll > 0 {
+			m.helpScroll--
+		}
+	case keyMatches(msg, k.HalfPageDown):
+		m.helpScroll += m.halfPageSize()
+	case keyMatches(msg, k.HalfPageUp):
+		m.helpScroll -= m.halfPageSize()
+		if m.helpScroll < 0 {
+			m.helpScroll = 0
+		}
+	}
+	if max := len(m.helpLines()) - (m.bodyHeight() - borderOverheadH); m.helpScroll > max {
+		m.helpScroll = max
+	}
+	if m.helpScroll < 0 {
+		m.helpScroll = 0
 	}
 	return m, nil
 }
@@ -267,6 +290,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.Help):
 		m.mode = modeHelp
+		m.helpScroll = 0
 
 	case keyMatches(msg, k.Search):
 		m.mode = modeSearch

@@ -90,6 +90,12 @@ type model struct {
 	mode  mode
 	input string
 
+	// helpScroll is how many lines of helpRows() are scrolled past, while
+	// mode == modeHelp — reset to 0 each time the overlay opens (see
+	// keys.Help in updateNormal) so it never reopens mid-scroll from
+	// wherever it was left last time.
+	helpScroll int
+
 	status string
 	err    error
 
