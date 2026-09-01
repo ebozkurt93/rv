@@ -10,9 +10,16 @@ import (
 func withTempHome(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
-	prev := os.Getenv("HOME")
+	prevHome := os.Getenv("HOME")
+	prevXDG, hadXDG := os.LookupEnv("XDG_CONFIG_HOME")
 	os.Setenv("HOME", dir)
-	t.Cleanup(func() { os.Setenv("HOME", prev) })
+	os.Unsetenv("XDG_CONFIG_HOME") // so configDir() is deterministic under $HOME/.config
+	t.Cleanup(func() {
+		os.Setenv("HOME", prevHome)
+		if hadXDG {
+			os.Setenv("XDG_CONFIG_HOME", prevXDG)
+		}
+	})
 }
 
 func TestSessionDirIsStablePerRepoRoot(t *testing.T) {

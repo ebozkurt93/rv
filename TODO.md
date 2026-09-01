@@ -31,8 +31,13 @@ they land, with the commit that did it.
       reference, grouped by Movement/Comments/Other. Footer trimmed back
       down to the essentials + "? help" now that it doesn't need to carry
       every binding.
-- [ ] **Config file / remappable keybindings.** `defaultKeymap()` is
-      hardcoded; no way to customize.
+- [x] **Config file / remappable keybindings.** `~/.config/rv/config` (or
+      `$XDG_CONFIG_HOME/rv/config`), a plain `action = key1, key2` format —
+      no new dependency for a TOML/YAML parser. A bad config doesn't block
+      startup; it falls back to defaults and surfaces the parse error. The
+      `?` help overlay and footer hint are now generated from the actual
+      resolved Keymap rather than a hardcoded list, so a remap shows up
+      correctly instead of the help screen lying about what a key does.
 - [ ] **Watch/auto-reload.** Only reloads on manual `R` or the 1s
       comment-poll; doesn't notice a file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.

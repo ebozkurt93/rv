@@ -78,7 +78,17 @@ func runTUI(diffSpec []string) error {
 		return err
 	}
 
+	keymap, keymapErr := loadKeymap()
+
 	m := newModel(repoRoot, diffFiles, session, normalizedSpec)
+	m.keys = keymap
+	if keymapErr != nil {
+		// Bad config shouldn't block startup — fall back to defaults (which
+		// loadKeymap already returned) and just surface the error so it's
+		// visible instead of silently ignored.
+		m.err = keymapErr
+	}
+
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }

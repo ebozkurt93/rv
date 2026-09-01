@@ -332,37 +332,49 @@ func (m model) buildDiffLines() (lines []string, cursorLine int) {
 	return lines, cursorLine
 }
 
-// renderCommentEditor is the inline "leave a comment" box shown directly
-// beneath the line it will be anchored to, rather than in the footer, so the
-// comment stays visually attached to the code it's about.
-// helpLines is the full keybinding reference shown by the ? overlay. Kept
-// as a plain list here rather than derived from Keymap so it can group and
-// annotate bindings (counts, wrapping behavior, etc.) in a way a bare
-// key-to-action map can't.
-var helpLines = []string{
-	"Movement",
-	"  j / down          move down            (10j moves down 10)",
-	"  k / up            move up",
-	"  ctrl+d / ctrl+u   half page down / up",
-	"  gg / G            jump to top / bottom  ({count}gg or {count}G → that line)",
-	"  } / {             next / prev hunk (current file only)",
-	"  n / N             next / prev unresolved comment (across files, wraps)",
-	"  tab / ]           next file",
-	"  shift+tab / [     prev file",
-	"  /                 filter files by name (enter confirms, esc cancels)",
-	"",
-	"Comments",
-	"  c                 add a comment on the line under the cursor",
-	"  d                 delete the comment under the cursor",
-	"  r                 toggle resolved",
-	"",
-	"Other",
-	"  o                 open the file under the cursor in $EDITOR",
-	"  R                 refresh (re-read the diff and session)",
-	"  e                 export the review to a markdown file",
-	"  y / Y             copy the review to the clipboard (markdown / JSON)",
-	"  ?                 toggle this help",
-	"  q / ctrl+c        quit",
+// helpRow is one line of the ? overlay: either a section header
+// (Section != "", everything else zero) or a keybinding (Keys resolved live
+// from the actual Keymap — including any config-file remaps — paired with
+// a static description).
+type helpRow struct {
+	section string
+	keys    []string
+	desc    string
+}
+
+// helpRows is generated from m.keys (not a hardcoded list of default key
+// names) specifically so a remapped binding — via the config file, see
+// config.go — shows its real key here instead of a stale default.
+func (m model) helpRows() []helpRow {
+	k := m.keys
+	return []helpRow{
+		{section: "Movement"},
+		{keys: k.MoveDown, desc: "move down (a count prefix repeats it, e.g. 10×)"},
+		{keys: k.MoveUp, desc: "move up"},
+		{keys: k.HalfPageDown, desc: "half page down"},
+		{keys: k.HalfPageUp, desc: "half page up"},
+		{keys: k.Top, desc: "jump to top (press twice); a count jumps to that line"},
+		{keys: k.Bottom, desc: "jump to bottom; a count jumps to that line"},
+		{keys: k.NextHunk, desc: "next hunk (current file only)"},
+		{keys: k.PrevHunk, desc: "prev hunk (current file only)"},
+		{keys: k.NextComment, desc: "next unresolved comment (across files, wraps)"},
+		{keys: k.PrevComment, desc: "prev unresolved comment (across files, wraps)"},
+		{keys: k.NextFile, desc: "next file"},
+		{keys: k.PrevFile, desc: "prev file"},
+		{keys: k.Search, desc: "filter files by name (enter confirms, esc cancels)"},
+		{section: "Comments"},
+		{keys: k.AddComment, desc: "add a comment on the line under the cursor"},
+		{keys: k.DeleteComment, desc: "delete the comment under the cursor"},
+		{keys: k.ToggleResolved, desc: "toggle resolved"},
+		{section: "Other"},
+		{keys: k.OpenEditor, desc: "open the file under the cursor in $EDITOR"},
+		{keys: k.Refresh, desc: "refresh (re-read the diff and session)"},
+		{keys: k.Export, desc: "export the review to a markdown file"},
+		{keys: k.CopyMarkdown, desc: "copy the review (markdown) to the clipboard"},
+		{keys: k.CopyJSON, desc: "copy the review (json) to the clipboard"},
+		{keys: k.Help, desc: "toggle this help"},
+		{keys: k.Quit, desc: "quit"},
+	}
 }
 
 func (m model) renderHelp() string {
@@ -375,13 +387,16 @@ func (m model) renderHelp() string {
 		innerH = 1
 	}
 
-	lines := make([]string, len(helpLines))
-	for i, l := range helpLines {
-		if l != "" && !strings.HasPrefix(l, "  ") {
-			lines[i] = styleTitle.Render(l)
-		} else {
-			lines[i] = l
+	var lines []string
+	for _, row := range m.helpRows() {
+		if row.section != "" {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, styleTitle.Render(row.section))
+			continue
 		}
+		lines = append(lines, fmt.Sprintf("  %-18s %s", strings.Join(row.keys, " / "), row.desc))
 	}
 
 	window := fitBlock(lines, innerH)
@@ -395,6 +410,10 @@ func (m model) renderHelp() string {
 		Padding(0, 1).
 		Render(strings.Join(window, "\n"))
 }
+
+// renderCommentEditor is the inline "leave a comment" box shown directly
+// beneath the line it will be anchored to, rather than in the footer, so the
+// comment stays visually attached to the code it's about.
 
 func (m model) renderCommentEditor() string {
 	width := m.width - sidebarWidth - borderOverheadW - 4
@@ -439,6 +458,15 @@ func renderReply(r Reply) string {
 	return styleMuted.Render("    └─ " + r.Author + ": " + r.Body)
 }
 
+// firstKey returns keys' primary binding, for compact footer hints — the
+// full list (all bound keys) is what the ? overlay shows.
+func firstKey(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
 func (m model) renderFooter() string {
 	if m.mode == modeComment {
 		return styleMuted.Render("enter save · esc cancel")
@@ -455,5 +483,9 @@ func (m model) renderFooter() string {
 	if m.status != "" {
 		return styleMuted.Render(m.status)
 	}
-	return styleMuted.Render("j/k move · c comment · o edit · q quit · ? help")
+	k := m.keys
+	hint := fmt.Sprintf("%s/%s move · %s comment · %s edit · %s quit · %s help",
+		firstKey(k.MoveDown), firstKey(k.MoveUp), firstKey(k.AddComment),
+		firstKey(k.OpenEditor), firstKey(k.Quit), firstKey(k.Help))
+	return styleMuted.Render(hint)
 }
