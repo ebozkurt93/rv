@@ -43,6 +43,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateHelp(msg)
 		case modeSearch:
 			return m.updateSearch(msg)
+		case modeConfirmDelete:
+			return m.updateConfirmDelete(msg)
 		default:
 			return m.updateNormal(msg)
 		}
@@ -88,6 +90,29 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// updateConfirmDelete handles the "delete this comment? y/n" prompt shown
+// after d — deleting a comment is destructive and a single keystroke, so it
+// gets a confirmation rather than firing immediately.
+func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		m.deleteCommentUnderCursor()
+		m.mode = modeNormal
+	case "n", "N", "esc":
+		m.mode = modeNormal
+	}
+	return m, nil
+}
+
+// persistUIPrefs saves the model's current display prefs (sidebar
+// visibility, line numbers, wrap) so the next `rv` invocation — anywhere,
+// not just this repo — starts with them already applied.
+func (m *model) persistUIPrefs() {
+	if err := saveUIPrefs(m.uiPrefs()); err != nil {
+		m.err = err
+	}
 }
 
 // refreshAll re-reads both the diff (the working tree may have changed —
@@ -216,7 +241,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case keyMatches(msg, k.DeleteComment):
-		m.deleteCommentUnderCursor()
+		if len(m.commentsForCurrentLine()) > 0 {
+			m.mode = modeConfirmDelete
+		}
 
 	case keyMatches(msg, k.ToggleResolved):
 		m.toggleResolvedUnderCursor()
@@ -236,6 +263,18 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.Search):
 		m.mode = modeSearch
 		m.input = m.fileFilter // editing starts from whatever filter is already active
+
+	case keyMatches(msg, k.ToggleSidebar):
+		m.sidebarHidden = !m.sidebarHidden
+		m.persistUIPrefs()
+
+	case keyMatches(msg, k.ToggleLineNumbers):
+		m.showLineNumbers = !m.showLineNumbers
+		m.persistUIPrefs()
+
+	case keyMatches(msg, k.ToggleWrap):
+		m.wrapLines = !m.wrapLines
+		m.persistUIPrefs()
 
 	case keyMatches(msg, k.Export):
 		if path, err := exportSession(m.repoRoot, m.session, m.diffFiles(), formatMarkdown); err != nil {
@@ -417,6 +456,8 @@ func (m *model) selectFile(idx int) {
 // selectVisibleFile moves the selection by step among files that pass the
 // current fileFilter, rather than every file — so tab/[/] skip over
 // filtered-out entries instead of landing on one that isn't even shown.
+// Wraps at either end (tab past the last file goes to the first, and vice
+// versa) rather than clamping, matching how n/N already wrap for comments.
 func (m *model) selectVisibleFile(step int) {
 	vis := m.visibleFileIndices(m.fileFilter)
 	if len(vis) == 0 {
@@ -429,13 +470,7 @@ func (m *model) selectVisibleFile(step int) {
 			break
 		}
 	}
-	pos += step
-	if pos < 0 {
-		pos = 0
-	}
-	if pos >= len(vis) {
-		pos = len(vis) - 1
-	}
+	pos = ((pos+step)%len(vis) + len(vis)) % len(vis)
 	m.selectFile(vis[pos])
 }
 

@@ -56,11 +56,23 @@ func (m model) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, empty, m.renderFooter())
 	}
 
-	sidebar := m.renderSidebar()
 	diff := m.renderDiff()
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, diff)
+	body := diff
+	if !m.sidebarHidden {
+		body = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), diff)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, m.renderFooter())
+}
+
+// diffPaneSidebarWidth is how much horizontal space the sidebar takes out
+// of the diff pane's budget — 0 when hidden, so the diff pane reclaims the
+// full width.
+func (m model) diffPaneSidebarWidth() int {
+	if m.sidebarHidden {
+		return 0
+	}
+	return sidebarWidth
 }
 
 func (m model) renderHeader() string {
@@ -275,7 +287,7 @@ func unresolvedCount(comments []Comment, file string) int {
 }
 
 func (m model) renderDiff() string {
-	innerW := m.width - sidebarWidth - borderOverheadW
+	innerW := m.width - m.diffPaneSidebarWidth() - borderOverheadW
 	if innerW < 1 {
 		innerW = 1
 	}
@@ -284,7 +296,7 @@ func (m model) renderDiff() string {
 		innerH = 1
 	}
 
-	lines, cursorLine := m.buildDiffLines()
+	lines, cursorLine := m.buildDiffLines(innerW)
 	scroll := clampScroll(cursorLine, len(lines), innerH)
 	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
 	for i, l := range window {
@@ -301,28 +313,43 @@ func (m model) renderDiff() string {
 // buildDiffLines flattens the current file's rows (plus any comments and,
 // if active, the inline comment editor) into individually-addressable
 // render lines, and reports which line the cursor is "on" so the caller can
-// scroll to keep it in view.
-func (m model) buildDiffLines() (lines []string, cursorLine int) {
+// scroll to keep it in view. width is the diff pane's content width — only
+// used when m.wrapLines is on (see appendText below); ignored otherwise,
+// since renderDiff's later fitLine pass handles plain truncation.
+func (m model) buildDiffLines(width int) (lines []string, cursorLine int) {
 	rows := m.currentRows()
 	file := m.files[m.fileIndex].file
 
+	appendText := func(text string) {
+		if m.wrapLines {
+			lines = append(lines, wrapLine(text, width)...)
+		} else {
+			lines = append(lines, text)
+		}
+	}
+
 	for i, row := range rows {
 		if row.kind == rowHunkHeader {
-			lines = append(lines, styleHunk.Render("@@ "+row.hunkHeader))
+			start := len(lines)
+			appendText(styleHunk.Render("@@ " + row.hunkHeader))
+			if i == m.lineIndex {
+				cursorLine = start
+			}
 			continue
 		}
 
-		text := renderLine(row.line)
+		text := renderLine(row.line, m.showLineNumbers)
+		start := len(lines)
 		if i == m.lineIndex {
-			cursorLine = len(lines)
+			cursorLine = start
 			text = styleCursor.Render(text)
 		}
-		lines = append(lines, text)
+		appendText(text)
 
 		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
-			lines = append(lines, renderComment(c))
+			appendText(renderComment(c))
 			for _, r := range c.Replies {
-				lines = append(lines, renderReply(r))
+				appendText(renderReply(r))
 			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
@@ -330,6 +357,18 @@ func (m model) buildDiffLines() (lines []string, cursorLine int) {
 		}
 	}
 	return lines, cursorLine
+}
+
+// wrapLine word-wraps s (which may already carry ANSI styling — lipgloss's
+// underlying wrap implementation is ANSI-aware and preserves it across the
+// break) to width cells, returning one entry per resulting physical line.
+// Used only when wrapLines is on; the default (off) truncates instead, via
+// fitLine in renderDiff, to keep every row exactly one line tall.
+func wrapLine(s string, width int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
 }
 
 // helpRow is one line of the ? overlay: either a section header
@@ -364,8 +403,12 @@ func (m model) helpRows() []helpRow {
 		{keys: k.Search, desc: "filter files by name (enter confirms, esc cancels)"},
 		{section: "Comments"},
 		{keys: k.AddComment, desc: "add a comment on the line under the cursor"},
-		{keys: k.DeleteComment, desc: "delete the comment under the cursor"},
+		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
+		{section: "Display"},
+		{keys: k.ToggleSidebar, desc: "show/hide the sidebar"},
+		{keys: k.ToggleLineNumbers, desc: "show/hide line numbers"},
+		{keys: k.ToggleWrap, desc: "wrap long lines instead of truncating"},
 		{section: "Other"},
 		{keys: k.OpenEditor, desc: "open the file under the cursor in $EDITOR"},
 		{keys: k.Refresh, desc: "refresh (re-read the diff and session)"},
@@ -416,7 +459,7 @@ func (m model) renderHelp() string {
 // comment stays visually attached to the code it's about.
 
 func (m model) renderCommentEditor() string {
-	width := m.width - sidebarWidth - borderOverheadW - 4
+	width := m.width - m.diffPaneSidebarWidth() - borderOverheadW - 4
 	if width < 10 {
 		width = 10
 	}
@@ -432,7 +475,7 @@ func (m model) renderCommentEditor() string {
 	return style.Render(styleComment.Render(label) + input + "█")
 }
 
-func renderLine(l Line) string {
+func renderLine(l Line, showNumbers bool) string {
 	prefix := " "
 	style := lipgloss.NewStyle()
 	switch l.Kind {
@@ -443,7 +486,22 @@ func renderLine(l Line) string {
 		prefix = "-"
 		style = styleRemoved
 	}
-	return style.Render(prefix + l.Content)
+	content := style.Render(prefix + l.Content)
+	if !showNumbers {
+		return content
+	}
+	// Independently rendered (muted) and concatenated, not nested inside
+	// content's own Render call — nesting would let content's reset code
+	// cut the gutter's styling off partway through.
+	gutter := styleMuted.Render(fmt.Sprintf("%4s %4s ", lineNumStr(l.OldLine), lineNumStr(l.NewLine)))
+	return gutter + content
+}
+
+func lineNumStr(n *int) string {
+	if n == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", *n)
 }
 
 func renderComment(c Comment) string {
@@ -473,6 +531,9 @@ func (m model) renderFooter() string {
 	}
 	if m.mode == modeSearch {
 		return "/" + m.input + "█"
+	}
+	if m.mode == modeConfirmDelete {
+		return styleError.Render("delete this comment? y/n")
 	}
 	if m.err != nil {
 		return styleError.Render("error: " + m.err.Error())

@@ -14,6 +14,7 @@ const (
 	modeComment
 	modeHelp
 	modeSearch
+	modeConfirmDelete
 )
 
 // rowKind distinguishes the two kinds of row the diff pane can show.
@@ -73,6 +74,11 @@ type model struct {
 
 	keys Keymap
 
+	// UI display prefs — persisted across sessions, see prefs.go.
+	sidebarHidden   bool
+	showLineNumbers bool
+	wrapLines       bool
+
 	// sessionMTime is the on-disk session's last-seen mtime, used to detect
 	// changes made by another process (e.g. an agent running `rv comment
 	// reply`) while this TUI instance is sitting open — see pollSessionCmd.
@@ -84,17 +90,31 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 	for _, fd := range diffFiles {
 		files = append(files, flattenFile(fd))
 	}
+	prefs := loadUIPrefs()
 	m := model{
-		repoRoot: repoRoot,
-		diffSpec: diffSpec,
-		files:    files,
-		session:  session,
-		keys:     defaultKeymap(),
+		repoRoot:        repoRoot,
+		diffSpec:        diffSpec,
+		files:           files,
+		session:         session,
+		keys:            defaultKeymap(),
+		sidebarHidden:   prefs.SidebarHidden,
+		showLineNumbers: prefs.ShowLineNumbers,
+		wrapLines:       prefs.WrapLines,
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
 	}
 	return m
+}
+
+// uiPrefs snapshots the model's persisted display prefs, for saving back
+// to disk after any of them change.
+func (m model) uiPrefs() uiPrefs {
+	return uiPrefs{
+		SidebarHidden:   m.sidebarHidden,
+		ShowLineNumbers: m.showLineNumbers,
+		WrapLines:       m.wrapLines,
+	}
 }
 
 func (m model) Init() tea.Cmd { return pollSessionCmd() }

@@ -38,7 +38,23 @@ they land, with the commit that did it.
       `?` help overlay and footer hint are now generated from the actual
       resolved Keymap rather than a hardcoded list, so a remap shows up
       correctly instead of the help screen lying about what a key does.
-- [ ] **Watch/auto-reload.** Only reloads on manual `R` or the 1s
+- [x] **Sidebar toggle.** `t` shows/hides the sidebar; the diff pane
+      reclaims the full width when it's hidden.
+- [x] **Delete confirmation.** `d` no longer deletes a comment immediately —
+      it prompts "delete this comment? y/n" first, since it was a single
+      destructive keystroke with no undo.
+- [x] **Refresh moved off `R`.** Was one shift-key away from `r` (toggle
+      resolved) on the same physical key, easy to mistype. Now `ctrl+r`.
+- [x] **Line numbers.** `#` toggles a gutter showing old/new line numbers
+      before each diff line.
+- [x] **Line wrap.** `w` toggles wrapping long lines instead of truncating
+      them with an ellipsis.
+- [x] **Persisted UI prefs.** Sidebar visibility, line numbers, and wrap are
+      saved to `~/.config/rv/ui-prefs.json` and restored on the next launch,
+      in any repo — these are user prefs, not per-repo session state.
+- [x] **File navigation wraps around.** `tab`/`[`/`]` now wrap at either end
+      instead of clamping (matching `n`/`N`'s existing wraparound).
+- [ ] **Watch/auto-reload.** Only reloads on manual `ctrl+r` or the 1s
       comment-poll; doesn't notice a file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.
 - [ ] **Syntax highlighting.** Diff lines are colored by +/-/context only,
@@ -46,5 +62,19 @@ they land, with the commit that did it.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.
-
-Explicitly not planned unless it comes up: mouse support.
+- [ ] **Mouse support.** At least click-to-select in the sidebar. Was
+      "explicitly not planned" before; came up, so it's queued now.
+- [ ] **Show/hide untracked/new files.** Needs scoping first — `rv` only
+      ever diffs `git diff <spec>`, which never includes untracked files at
+      all (git's own behavior), so "new files" today means files git tracks
+      as newly-added in the diff (status `A`), not untracked working-tree
+      files. Clarify which is actually wanted before building a toggle.
+- [ ] **Fragile comment re-anchoring.** Comments match purely by file + line
+      number, nothing else (no content hash, no context). If the commented
+      line stops appearing at that position (edit reverted, or unrelated
+      lines shifted above it), the comment either silently disappears from
+      the diff pane (still present in the session file and in
+      `rv comment list`, just not shown attached to anything) or — worse —
+      silently reattaches to a different, unrelated line that happens to
+      land at the same number. No orphaned-comment indicator, no
+      content-based matching. Worth fixing if this bites in practice.

@@ -105,9 +105,9 @@ func TestSelectVisibleFileSkipsFilteredOutEntries(t *testing.T) {
 		t.Fatalf("expected to move to bar.go (index 1), got %d", m.fileIndex)
 	}
 
-	m.selectVisibleFile(1) // no more visible files forward — clamps
-	if m.fileIndex != 1 {
-		t.Fatalf("expected to stay at index 1 (last visible), got %d", m.fileIndex)
+	m.selectVisibleFile(1) // past the last visible file — wraps to the first
+	if m.fileIndex != 0 {
+		t.Fatalf("expected to wrap back to foo.go (index 0), got %d", m.fileIndex)
 	}
 }
 
