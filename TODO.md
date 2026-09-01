@@ -93,7 +93,16 @@ they land, with the commit that did it.
       non-truecolor profile, visibly mismatching the syntax-highlighted
       text's own untouched truecolor tint), and a token whose own color
       nearly matches the tint (e.g. a comment) falls back to a contrast-safe
-      black/white instead of rendering as next-to-invisible text.
+      black/white instead of rendering as next-to-invisible text. The diff
+      pane draws its own border by hand (`renderBorderedRaw`) instead of
+      `lipgloss.Style.Border(...).Padding(...).Render(...)`, since lipgloss's
+      layout engine reprocesses embedded ANSI when computing per-line
+      padding and silently drops truecolor backgrounds it doesn't recognize
+      as its own styling. Tabs in diff content are expanded to spaces before
+      any width-sensitive rendering (`ansi.StringWidth`/`ansi.Truncate`
+      count a literal tab as 0-1 cells, not the terminal's actual tab-stop
+      jump), which was causing the border to visibly shift/misalign on
+      tab-indented lines once wrap was on.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.
