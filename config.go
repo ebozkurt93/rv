@@ -108,6 +108,7 @@ func keymapFields(km *Keymap) map[string]*[]string {
 		"add_comment":         &km.AddComment,
 		"delete_comment":      &km.DeleteComment,
 		"toggle_resolved":     &km.ToggleResolved,
+		"toggle_reviewed":     &km.ToggleReviewed,
 		"open_editor":         &km.OpenEditor,
 		"refresh":             &km.Refresh,
 		"export":              &km.Export,

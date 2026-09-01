@@ -64,6 +64,44 @@ func TestJumpToHunkForwardAndBackward(t *testing.T) {
 	}
 }
 
+func TestJumpToHunkCrossesFilesAtEitherEnd(t *testing.T) {
+	m := newModel("/repo", []FileDiff{
+		fileDiffWithHunks("a.go", 2, 2), // rows: 0=hdr,1-2,3=hdr,4-5
+		fileDiffWithHunks("b.go", 2),    // rows: 0=hdr,1-2
+	}, Session{}, nil)
+	// starts on a.go's first hunk's first line (row 1, per the cursor
+	// invariant — never on a header)
+
+	m.jumpToHunk(1) // -> a.go's 2nd hunk
+	if m.fileIndex != 0 || m.lineIndex != 4 {
+		t.Fatalf("expected a.go row 4, got file=%d line=%d", m.fileIndex, m.lineIndex)
+	}
+
+	m.jumpToHunk(1) // a.go has no more hunks -> falls through to b.go
+	if m.fileIndex != 1 || m.lineIndex != 1 {
+		t.Fatalf("expected to cross into b.go at row 1, got file=%d line=%d", m.fileIndex, m.lineIndex)
+	}
+
+	m.jumpToHunk(1) // b.go has no more hunks either -> wraps back to a.go's first hunk
+	if m.fileIndex != 0 || m.lineIndex != 1 {
+		t.Fatalf("expected to wrap back to a.go row 1, got file=%d line=%d", m.fileIndex, m.lineIndex)
+	}
+
+	m.jumpToHunk(-1) // backward across files -> lands on b.go's last hunk's first line
+	if m.fileIndex != 1 || m.lineIndex != 1 {
+		t.Fatalf("expected to cross backward into b.go row 1, got file=%d line=%d", m.fileIndex, m.lineIndex)
+	}
+}
+
+func TestJumpToHunkAcrossFilesNoOpWithOnlyOneFile(t *testing.T) {
+	m := newModel("/repo", []FileDiff{fileDiffWithHunks("a.go", 2)}, Session{}, nil)
+	before := m.lineIndex
+	m.jumpToHunk(1)
+	if m.lineIndex != before || m.fileIndex != 0 {
+		t.Fatalf("expected no-op with a single file, got file=%d line=%d", m.fileIndex, m.lineIndex)
+	}
+}
+
 func TestJumpToCommentSkipsResolvedAndWraps(t *testing.T) {
 	n1, n2, n3 := 1, 1, 1
 	files := []FileDiff{

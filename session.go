@@ -17,6 +17,11 @@ type Session struct {
 	RepoRoot  string    `json:"repo_root"`
 	CreatedAt time.Time `json:"created_at"`
 	Comments  []Comment `json:"comments"`
+	// Reviewed maps a file path to the content hash (fileDiffHash) it had
+	// when marked reviewed. A file only counts as reviewed if its *current*
+	// hash still matches — any change to the diff (new commits, more edits)
+	// silently un-reviews it rather than leaving a stale checkmark.
+	Reviewed map[string]string `json:"reviewed,omitempty"`
 }
 
 // Comment is a single review note anchored to a line in a diff. OldLine

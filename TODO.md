@@ -13,9 +13,12 @@ they land, with the commit that did it.
       the cursor at that line, via `$VISUAL`/`$EDITOR`/`vi` (matching git's
       own fallback chain) — `+N file` for terminal editors, `-g file:N` for
       VS Code.
-- [x] **Hunk-level jump.** `}`/`{` jump to the next/prev hunk header within
-      the current file (respects a count, e.g. `3}`). Doesn't wrap or cross
-      files — reaching the last hunk and pressing `}` again is a no-op.
+- [x] **Hunk-level jump.** `}`/`{` jump to the next/prev hunk, landing on
+      its first line (never the header — you can't comment there, so
+      stopping on it just cost an extra keypress). Respects a count (`3}`).
+      Runs off the current file into the next/prev *visible* file once it's
+      out of hunks, wrapping around at either end, rather than stopping at
+      the file boundary.
 - [x] **Cross-file comment navigation.** `n`/`N` jump to the next/prev
       *unresolved* comment across all files, in sidebar order, wrapping
       around at either end. Resolved comments are skipped.
@@ -54,6 +57,18 @@ they land, with the commit that did it.
       in any repo — these are user prefs, not per-repo session state.
 - [x] **File navigation wraps around.** `tab`/`[`/`]` now wrap at either end
       instead of clamping (matching `n`/`N`'s existing wraparound).
+- [x] **Cursor never rests on a hunk header.** Was reachable via file-open,
+      `gg`/`G` (including `{count}gg`/`{count}G` landing exactly on a
+      header's row index), and even plain `j`/`k` stepping through one —
+      not just `}`/`{`. Every cursor-setting path now funnels through
+      shared first/last/nearest-content-row helpers so the invariant holds
+      everywhere, locked in with a dedicated test file.
+- [x] **Mark a file reviewed.** `v` toggles a per-file reviewed mark
+      (`Session.Reviewed`, keyed by file path → a content hash of that
+      file's diff). If the file's diff changes at all afterward, it reads
+      as unreviewed again automatically — the hash just won't match, no
+      explicit invalidation needed. Shown as a dimmed path + `✓` in the
+      sidebar, and an "N/M files reviewed" count in the header.
 - [ ] **Watch/auto-reload.** Only reloads on manual `ctrl+r` or the 1s
       comment-poll; doesn't notice a file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.

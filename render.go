@@ -86,8 +86,15 @@ func (m model) renderHeader() string {
 			unresolved++
 		}
 	}
+	reviewedCount := 0
+	for _, fr := range m.files {
+		if isFileReviewed(m.session, fr.file) {
+			reviewedCount++
+		}
+	}
+
 	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel())
-	countsText := fmt.Sprintf("%d file(s), %d comment(s), %d unresolved", len(m.files), total, unresolved)
+	countsText := fmt.Sprintf("%d/%d file(s) reviewed, %d comment(s), %d unresolved", reviewedCount, len(m.files), total, unresolved)
 	if m.fileFilter != "" {
 		shown := len(m.visibleFileIndices(m.fileFilter))
 		countsText += fmt.Sprintf(" · filter %q (%d/%d shown)", m.fileFilter, shown, len(m.files))
@@ -211,7 +218,8 @@ func (m model) renderSidebar() string {
 	cursorPos := 0
 	for pos, fi := range vis {
 		fr := m.files[fi]
-		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
+		reviewed := isFileReviewed(m.session, fr.file)
+		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, reviewed, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
 		if fi == m.fileIndex {
 			cursorPos = pos
 		}
@@ -233,27 +241,41 @@ func (m model) renderSidebar() string {
 // renderSidebarRow renders a single sidebar line, truncated (never wrapped)
 // to fit width — the file path is truncated from the left so the filename
 // itself, the most useful part, stays visible.
-func renderSidebarRow(fr fileRows, selected bool, unresolved int, width int) string {
+func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, width int) string {
 	prefix := "  "
 	if selected {
 		prefix = "▸ "
 	}
 	marker := statusMarker(fr.file.Status)
+	check := " "
+	if reviewed {
+		check = styleAdded.Render("✓")
+	}
 	suffix := ""
 	if unresolved > 0 {
 		suffix = fmt.Sprintf(" (%d)", unresolved)
 	}
 
-	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - 1 - lipgloss.Width(suffix)
+	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - lipgloss.Width(check) - 1 - lipgloss.Width(suffix)
 	path := truncateKeepingTail(fr.file.Path, avail)
 
 	// Concatenate independently-rendered segments rather than nesting one
 	// Style.Render call inside another — nesting would let the inner
-	// segment's reset code cut off the outer style partway through the line.
+	// segment's reset code cut off the outer style partway through the
+	// line. Reviewed dims the path (muted) regardless of selection, to
+	// visually de-emphasize files you've already gone through.
 	if selected {
-		return styleSelected.Render(prefix) + marker + styleSelected.Render(" "+path) + styleComment.Render(suffix)
+		pathPart := styleSelected.Render(" " + path)
+		if reviewed {
+			pathPart = styleMuted.Render(" " + path)
+		}
+		return styleSelected.Render(prefix) + marker + check + pathPart + styleComment.Render(suffix)
 	}
-	return prefix + marker + " " + path + styleComment.Render(suffix)
+	pathPart := path
+	if reviewed {
+		pathPart = styleMuted.Render(path)
+	}
+	return prefix + marker + check + " " + pathPart + styleComment.Render(suffix)
 }
 
 // truncateKeepingTail truncates s to at most width cells, preferring to
@@ -417,6 +439,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.AddComment, desc: "add a comment on the line under the cursor"},
 		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
+		{keys: k.ToggleReviewed, desc: "mark/unmark the current file reviewed (auto-clears if it changes)"},
 		{section: "Display"},
 		{keys: k.ToggleSidebar, desc: "show/hide the sidebar"},
 		{keys: k.ToggleLineNumbers, desc: "show/hide line numbers"},

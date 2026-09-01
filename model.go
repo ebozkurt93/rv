@@ -317,6 +317,17 @@ func (m model) currentLineLabel() string {
 	return ""
 }
 
+// isFileReviewed reports whether fd is marked reviewed in session AND its
+// content still matches the hash it had when marked — a stale mark (the
+// file changed since) counts as unreviewed rather than lying about it.
+func isFileReviewed(session Session, fd FileDiff) bool {
+	if session.Reviewed == nil {
+		return false
+	}
+	hash, ok := session.Reviewed[fd.Path]
+	return ok && hash == fileDiffHash(fd)
+}
+
 // commentsForCurrentLine returns comments anchored to the cursor's current
 // line (matched by file + whichever of old/new line the comment carries).
 func (m model) commentsForCurrentLine() []Comment {

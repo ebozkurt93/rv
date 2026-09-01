@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/waigani/diffparser"
@@ -189,6 +192,32 @@ type FileDiff struct {
 	OldPath string
 	Status  FileStatus
 	Hunks   []Hunk
+}
+
+// fileDiffHash fingerprints a file's diff content (every hunk header and
+// line — kind, content, and line numbers), so "mark reviewed" (see
+// (*model).toggleFileReviewed) can tell a genuinely unchanged file from one
+// that only looks the same at a glance. Any change at all — including
+// something that shifts line numbers without touching this file's own
+// content, like an unrelated commit changing hunk boundaries — invalidates
+// it, which is the conservative direction to be wrong in.
+func fileDiffHash(fd FileDiff) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%d\x00", fd.Path, fd.Status)
+	for _, hunk := range fd.Hunks {
+		fmt.Fprintf(h, "@%s\x00", hunk.Header)
+		for _, l := range hunk.Lines {
+			fmt.Fprintf(h, "%d\x00%s\x00%s\x00%s\x00", l.Kind, l.Content, intPtrStr(l.OldLine), intPtrStr(l.NewLine))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func intPtrStr(n *int) string {
+	if n == nil {
+		return ""
+	}
+	return strconv.Itoa(*n)
 }
 
 // ParseDiff parses a unified diff (as produced by `git diff` or `jj diff

@@ -248,6 +248,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.ToggleResolved):
 		m.toggleResolvedUnderCursor()
 
+	case keyMatches(msg, k.ToggleReviewed):
+		m.toggleCurrentFileReviewed()
+
 	case keyMatches(msg, k.OpenEditor):
 		if line, ok := m.currentLine(); ok {
 			path := filepath.Join(m.repoRoot, m.files[m.fileIndex].file.Path)
@@ -351,37 +354,83 @@ func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
 }
 
 // jumpToHunk moves the cursor to the next (dir>0) or previous (dir<0) hunk
-// header within the current file. No-op if there isn't one that direction
-// (doesn't wrap — jumping past the last hunk of a file is more likely a
-// sign to switch files than to loop back to the first one).
+// within the current file, landing on its first line (a header can't be
+// commented on, so stopping there just costs an extra j/k every time). Runs
+// off the end of the current file's hunks into the next/prev visible file
+// instead of stopping — see jumpToHunkAcrossFiles.
 func (m *model) jumpToHunk(dir int) {
 	rows := m.currentRows()
 	i := m.lineIndex
 	for {
 		i += dir
 		if i < 0 || i >= len(rows) {
-			return // no more hunks that direction — no-op
+			m.jumpToHunkAcrossFiles(dir)
+			return
 		}
 		if rows[i].kind != rowHunkHeader {
 			continue
 		}
-		// Land on the hunk's first line, not the header itself — a header
-		// can't be commented on, so stopping there just costs you an extra
-		// j/k every time. If that first line is where we already are (we're
-		// searching backward and just hit our own hunk's header, since
-		// we're normally sitting right after it), keep looking past it —
-		// otherwise "{" would look like a no-op instead of moving to the
-		// previous hunk.
 		target := i
 		if next := i + 1; next < len(rows) && rows[next].kind == rowLine {
 			target = next
 		}
+		// If that first line is where we already are (we're searching
+		// backward and just hit our own hunk's header, since we're normally
+		// sitting right after it), keep looking past it — otherwise "{"
+		// would look like a no-op instead of moving to the previous hunk.
 		if target == m.lineIndex {
 			continue
 		}
 		m.lineIndex = target
 		return
 	}
+}
+
+// jumpToHunkAcrossFiles is jumpToHunk's fallback once it runs off the
+// current file's hunks: move to the first hunk of the next visible file
+// (dir>0) or the last hunk of the previous one (dir<0), wrapping around at
+// either end like tab/[/] and n/N already do. A no-op if there's no other
+// visible file to go to.
+func (m *model) jumpToHunkAcrossFiles(dir int) {
+	vis := m.visibleFileIndices(m.fileFilter)
+	if len(vis) <= 1 {
+		return
+	}
+	pos := 0
+	for i, v := range vis {
+		if v == m.fileIndex {
+			pos = i
+			break
+		}
+	}
+	pos = ((pos+dir)%len(vis) + len(vis)) % len(vis)
+	newFileIdx := vis[pos]
+
+	rows := m.files[newFileIdx].rows
+	var target int
+	if dir > 0 {
+		target = firstContentRow(rows)
+	} else {
+		target = lastHunkFirstContentRow(rows)
+	}
+	m.fileIndex = newFileIdx
+	m.lineIndex = target
+}
+
+// lastHunkFirstContentRow finds the last hunk header in rows and returns
+// the index of its first content line — the backward counterpart of
+// firstContentRow, used when crossing into the previous file so "{" lands
+// consistently on a hunk's start rather than the file's last line.
+func lastHunkFirstContentRow(rows []diffRow) int {
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i].kind == rowHunkHeader {
+			if next := i + 1; next < len(rows) && rows[next].kind == rowLine {
+				return next
+			}
+			break
+		}
+	}
+	return lastContentRow(rows)
 }
 
 // jumpToComment moves the cursor to the next (dir>0) or previous (dir<0)
@@ -568,6 +617,31 @@ func (m *model) toggleResolvedUnderCursor() {
 
 	m.mutateSession(func(s Session) (Session, error) {
 		toggleResolved(s.Comments, id)
+		return s, nil
+	})
+}
+
+// toggleCurrentFileReviewed marks the selected file reviewed (recording its
+// current content hash) or, if it's already reviewed, un-marks it. Marking
+// reviewed is what needs the fresh hash — if the file changes afterward,
+// isFileReviewed already treats a hash mismatch as unreviewed on its own,
+// so there's nothing to actively invalidate later.
+func (m *model) toggleCurrentFileReviewed() {
+	if m.fileIndex < 0 || m.fileIndex >= len(m.files) {
+		return
+	}
+	fd := m.files[m.fileIndex].file
+	reviewed := isFileReviewed(m.session, fd)
+
+	m.mutateSession(func(s Session) (Session, error) {
+		if reviewed {
+			delete(s.Reviewed, fd.Path)
+		} else {
+			if s.Reviewed == nil {
+				s.Reviewed = map[string]string{}
+			}
+			s.Reviewed[fd.Path] = fileDiffHash(fd)
+		}
 		return s, nil
 	})
 }

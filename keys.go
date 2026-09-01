@@ -23,6 +23,7 @@ type Keymap struct {
 	AddComment        []string
 	DeleteComment     []string
 	ToggleResolved    []string
+	ToggleReviewed    []string
 	OpenEditor        []string
 	Refresh           []string
 	Export            []string
@@ -56,6 +57,7 @@ func defaultKeymap() Keymap {
 		AddComment:        []string{"c"},
 		DeleteComment:     []string{"d"},
 		ToggleResolved:    []string{"r"},
+		ToggleReviewed:    []string{"v"},
 		OpenEditor:        []string{"o"},
 		Refresh:           []string{"ctrl+r"},
 		Export:            []string{"e"},
