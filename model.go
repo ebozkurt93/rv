@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/chroma/v2"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -44,10 +45,13 @@ type fileRows struct {
 	// rather than a fixed width, so a 40-line file gets a 2-char gutter
 	// instead of always reserving room for 4.
 	numWidth int
+	// lexer is resolved once per file (lexers.Match does filename pattern
+	// matching — not worth repeating for every line rendered).
+	lexer chroma.Lexer
 }
 
 func flattenFile(fd FileDiff) fileRows {
-	fr := fileRows{file: fd}
+	fr := fileRows{file: fd, lexer: pickLexer(fd.Path)}
 	maxNum := 0
 	for _, h := range fd.Hunks {
 		fr.rows = append(fr.rows, diffRow{kind: rowHunkHeader, hunkHeader: h.Header})

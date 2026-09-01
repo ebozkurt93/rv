@@ -73,8 +73,14 @@ they land, with the commit that did it.
       reloads on manual `ctrl+r` or the 1s comment-poll; doesn't notice a
       file changing on disk on its own.
 - [ ] **Multi-line comment ranges.** Comments anchor to a single line only.
-- [ ] **Syntax highlighting.** Diff lines are colored by +/-/context only,
-      no language-aware highlighting.
+- [x] **Syntax highlighting.** Diff lines run through chroma (lexer picked
+      per file, cached on fileRows) and format via `formatters.TTY16`, so
+      hues still reduce to the basic 16 ANSI colors like the rest of `rv`.
+      Added/removed/cursor tints are baked directly into the chroma style
+      per token (not applied as an outer wrap — chroma resets after every
+      token, same nesting hazard as lipgloss) so foreground syntax color and
+      background tint coexist per Hunk-style rendering, rather than solid
+      green/red lines.
 - [ ] **Intraline (word-level) diff highlighting.** No highlighting of what
       specifically changed within a modified line (what GitHub/Hunk/difit
       all do) — only whole-line +/- coloring.
@@ -113,16 +119,10 @@ they land, with the commit that did it.
 - [ ] **`?` help overlay needs to scroll.** renderHelp truncates via
       fitBlock instead of scrolling — on a short terminal, entries past the
       visible height are silently cut off rather than reachable.
-- [ ] **Cursor-line highlight only covers the gutter, not the whole line.**
-      Root cause (traced, not yet fixed): buildDiffLines wraps the cursor
-      row's already-styled text (gutter's muted color + content's
-      added/removed color, each independently Render()'d and concatenated)
-      in styleCursor.Render(...) — but the gutter segment's own trailing
-      reset code cancels the outer Reverse() partway through the line, so
-      only the gutter portion actually renders reverse-video. Separately,
-      even once that's fixed, the reverse-video is applied before fitLine
-      pads the line to the full pane width, so the highlight would still
-      stop at the end of the text instead of spanning the row — needs
-      reordering so cursor styling wraps the final width-padded line, built
-      from a plain (uncolored) version of that one row's text so there's no
-      nested reset to fight.
+- [x] **Cursor-line highlight only covers the gutter, not the whole line.**
+      Fixed as part of syntax highlighting: the cursor row now picks a
+      dedicated chroma style (bright-black background baked into every
+      token, taking priority over the row's added/removed tint) instead of
+      an outer `styleCursor.Render(...)` wrap, and `renderDiff` tints
+      `fitLine`'s padding to match via `fitLineWithBackground` so the
+      highlight spans the full row width, not just the text.

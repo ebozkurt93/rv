@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -26,7 +27,6 @@ var (
 	styleAdded    = lipgloss.NewStyle().Foreground(colorAdded)
 	styleRemoved  = lipgloss.NewStyle().Foreground(colorRemoved)
 	styleHunk     = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
-	styleCursor   = lipgloss.NewStyle().Reverse(true)
 	styleSelected = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	styleMuted    = lipgloss.NewStyle().Foreground(colorMuted)
 	styleComment  = lipgloss.NewStyle().Foreground(colorComment).Italic(true)
@@ -228,6 +228,22 @@ func fitLine(s string, width int) string {
 	return s
 }
 
+// fitLineWithBackground is fitLine, but the padding added to reach width is
+// tinted with bg instead of left plain — used for rows whose text already
+// carries a baked-in chroma background (added/removed/cursor tint, see
+// renderLine) so that tint visually spans the whole row instead of stopping
+// wherever the text happens to end.
+func fitLineWithBackground(s string, width int, bg lipgloss.Color) string {
+	if width <= 0 {
+		return ""
+	}
+	s = ansi.Truncate(s, width, "…")
+	if w := ansi.StringWidth(s); w < width {
+		s += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", width-w))
+	}
+	return s
+}
+
 // clampScroll centers cursor within a height-tall window over [0, total),
 // clamped so the window never runs past either end.
 func clampScroll(cursor, total, height int) int {
@@ -378,11 +394,20 @@ func (m model) renderDiff() string {
 		innerH = 1
 	}
 
-	lines, cursorLine, _ := m.buildDiffLines(innerW)
+	lines, cursorLine, rowFor, mainLine := m.buildDiffLinesDetailed(innerW)
 	scroll := clampScroll(cursorLine, len(lines), innerH)
-	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
-	for i, l := range window {
-		window[i] = fitLine(l, innerW)
+	end := min(scroll+innerH, len(lines))
+	window := fitBlock(lines[scroll:end], innerH)
+
+	rows := m.currentRows()
+	for i := range window {
+		idx := scroll + i
+		bg, tinted := rowBackground(rows, rowFor, mainLine, idx, m.lineIndex)
+		if tinted {
+			window[i] = fitLineWithBackground(window[i], innerW, bg)
+		} else {
+			window[i] = fitLine(window[i], innerW)
+		}
 	}
 
 	return lipgloss.NewStyle().
@@ -390,6 +415,40 @@ func (m model) renderDiff() string {
 		BorderForeground(colorBorder).
 		Padding(0, 1).
 		Render(strings.Join(window, "\n"))
+}
+
+// rowBackground decides whether the rendered line at lines[idx] (idx may be
+// out of range — fitBlock pads window past the real content with "") needs
+// its trailing padding tinted to match the background renderLine already
+// baked into that row's syntax-highlighted text, and if so, which color.
+// The cursor row's tint takes priority over its diff-status tint, matching
+// renderLine's own precedence.
+func rowBackground(rows []diffRow, rowFor []int, mainLine []bool, idx, cursorRowIdx int) (lipgloss.Color, bool) {
+	if idx < 0 || idx >= len(rowFor) {
+		return "", false
+	}
+	if !mainLine[idx] {
+		return "", false
+	}
+	origin := rowFor[idx]
+	if origin < 0 || origin >= len(rows) {
+		return "", false
+	}
+	if origin == cursorRowIdx {
+		return lipgloss.Color("8"), true
+	}
+	row := rows[origin]
+	if row.kind != rowLine {
+		return "", false
+	}
+	switch row.line.Kind {
+	case LineAdded:
+		return lipgloss.Color("2"), true
+	case LineRemoved:
+		return lipgloss.Color("1"), true
+	default:
+		return "", false
+	}
 }
 
 // buildDiffLines flattens the current file's rows (plus any comments and,
@@ -406,53 +465,66 @@ func (m model) renderDiff() string {
 // this exact same construction (including scroll) rather than assuming one
 // rendered line always equals one row, which wrap mode breaks.
 func (m model) buildDiffLines(width int) (lines []string, cursorLine int, rowFor []int) {
+	l, c, r, _ := m.buildDiffLinesDetailed(width)
+	return l, c, r
+}
+
+// buildDiffLinesDetailed is buildDiffLines plus a mainLine marker: mainLine[k]
+// is true only for a row's own diff-line/hunk-header rendering (including its
+// wrap continuations), false for comment/reply/editor lines attached beneath
+// it — so callers that tint a row's background (renderDiff) don't bleed that
+// tint onto a comment's padding, which never had it baked into its own text.
+func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int, rowFor []int, mainLine []bool) {
 	rows := m.currentRows()
 	file := m.files[m.fileIndex].file
 
-	appendText := func(text string, rowIdx int) {
+	appendText := func(text string, rowIdx int, main bool) {
 		if m.wrapLines {
 			for _, l := range wrapLine(text, width) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
+				mainLine = append(mainLine, main)
 			}
 			return
 		}
 		lines = append(lines, text)
 		rowFor = append(rowFor, rowIdx)
+		mainLine = append(mainLine, main)
 	}
 
 	for i, row := range rows {
 		if row.kind == rowHunkHeader {
 			start := len(lines)
-			appendText(styleHunk.Render("@@ "+row.hunkHeader), i)
+			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false)
 			if i == m.lineIndex {
 				cursorLine = start
 			}
 			continue
 		}
 
-		text := renderLine(row.line, m.showLineNumbers, m.files[m.fileIndex].numWidth)
+		cursor := i == m.lineIndex
+		text := renderLine(m.files[m.fileIndex].lexer, row.line, m.showLineNumbers, m.files[m.fileIndex].numWidth, cursor)
 		start := len(lines)
-		if i == m.lineIndex {
+		if cursor {
 			cursorLine = start
-			text = styleCursor.Render(text)
 		}
-		appendText(text, i)
+		appendText(text, i, true)
 
 		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
-			appendText(renderComment(c), i)
+			appendText(renderComment(c), i, false)
 			for _, r := range c.Replies {
-				appendText(renderReply(r), i)
+				appendText(renderReply(r), i, false)
 			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
 			for _, l := range strings.Split(m.renderCommentEditor(), "\n") {
 				lines = append(lines, l)
 				rowFor = append(rowFor, i)
+				mainLine = append(mainLine, false)
 			}
 		}
 	}
-	return lines, cursorLine, rowFor
+	return lines, cursorLine, rowFor, mainLine
 }
 
 // wrapLine word-wraps s (which may already carry ANSI styling — lipgloss's
@@ -575,18 +647,34 @@ func (m model) renderCommentEditor() string {
 	return style.Render(styleComment.Render(label) + input + "█")
 }
 
-func renderLine(l Line, showNumbers bool, numWidth int) string {
+// renderLine renders one diff line's gutter + prefix + syntax-highlighted
+// content. cursor picks the cursor-tinted syntax style regardless of diff
+// status (matching how a "current line" highlight in most editors takes
+// priority over other line-level decoration); otherwise the style follows
+// l.Kind (added/removed/context). The +/- prefix character is rendered
+// separately from the highlighted content (own top-level Render call,
+// concatenated rather than nested — see tintedStyle's doc comment for why
+// that distinction matters here).
+func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, cursor bool) string {
 	prefix := " "
-	style := lipgloss.NewStyle()
+	prefixStyle := lipgloss.NewStyle()
+	syntaxStyle := syntaxContextStyle
 	switch l.Kind {
 	case LineAdded:
 		prefix = "+"
-		style = styleAdded
+		prefixStyle = styleAdded
+		syntaxStyle = syntaxAddedStyle
 	case LineRemoved:
 		prefix = "-"
-		style = styleRemoved
+		prefixStyle = styleRemoved
+		syntaxStyle = syntaxRemovedStyle
 	}
-	content := style.Render(prefix + l.Content)
+	if cursor {
+		syntaxStyle = syntaxCursorStyle
+		prefixStyle = lipgloss.NewStyle().Background(lipgloss.Color("8"))
+	}
+
+	content := prefixStyle.Render(prefix) + highlightContent(lexer, syntaxStyle, l.Content)
 	if !showNumbers {
 		return content
 	}

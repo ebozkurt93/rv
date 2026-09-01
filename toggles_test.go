@@ -118,12 +118,12 @@ func TestWrapLineSplitsAtWidth(t *testing.T) {
 
 func TestRenderLineWithNumbersIncludesBothSides(t *testing.T) {
 	old, new := 5, 7
-	out := renderLine(Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, 1)
+	out := renderLine(pickLexer("a.txt"), Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, 1, false)
 	if !containsAll(out, "5", "7", "x") {
 		t.Fatalf("expected gutter to show both line numbers, got %q", out)
 	}
 
-	withoutNumbers := renderLine(Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, false, 1)
+	withoutNumbers := renderLine(pickLexer("a.txt"), Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, false, 1, false)
 	if containsAll(withoutNumbers, "5", "7") {
 		t.Fatalf("expected no line numbers when showNumbers=false, got %q", withoutNumbers)
 	}
@@ -141,8 +141,8 @@ func TestGutterWidthScalesToFileSize(t *testing.T) {
 	}
 
 	old, new := 3, 3
-	smallGutter := renderLine(Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, small.numWidth)
-	bigGutter := renderLine(Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, big.numWidth)
+	smallGutter := renderLine(pickLexer("a.txt"), Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, small.numWidth, false)
+	bigGutter := renderLine(pickLexer("a.txt"), Line{Kind: LineContext, Content: "x", OldLine: &old, NewLine: &new}, true, big.numWidth, false)
 	if len(smallGutter) >= len(bigGutter) {
 		t.Fatalf("expected the small file's gutter to be narrower: small=%q big=%q", smallGutter, bigGutter)
 	}
