@@ -580,11 +580,25 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 // break) to width cells, returning one entry per resulting physical line.
 // Used only when wrapLines is on; the default (off) truncates instead, via
 // fitLine in renderDiff, to keep every row exactly one line tall.
+//
+// Style.Width() doesn't just wrap — it also right-pads every resulting
+// physical line to exactly width with plain, unstyled spaces, since it has
+// no idea our content carries a tint that padding should match. Each
+// returned line is trimmed back down to its real content so renderDiff's
+// fitLine/fitLineWithBackground (which DO know about the tint) are the ones
+// deciding what the padding looks like — otherwise a tinted row that wraps
+// arrives at fitLineWithBackground already at full width, so its own
+// padding branch never runs, and the wrap-added padding stays uncolored.
 func wrapLine(s string, width int) []string {
 	if width <= 0 {
 		return []string{s}
 	}
-	return strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
+	rawLines := strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
+	lines := make([]string, len(rawLines))
+	for i, l := range rawLines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
 }
 
 // helpRow is one line of the ? overlay: either a section header
@@ -740,7 +754,18 @@ func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, curs
 		return ansiFgEscape(fg) + tintBgEscape(bg) + text + "\033[0m"
 	}
 
-	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, l.Content)
+	// Tabs are expanded to a fixed number of spaces before any of the
+	// width-sensitive rendering below — ansi.StringWidth/ansi.Truncate (used
+	// throughout this file for column-exact layout) count a literal tab as
+	// either 0 or 1 cell, while a real terminal jumps it to the next
+	// tab-stop (up to 8 columns). That mismatch under-counts the line's true
+	// rendered width, throwing off truncation/padding and, with
+	// renderBorderedRaw's fixed-width row assembly, visibly misaligning the
+	// right border on any line that came from tab-indented source (i.e. most
+	// Go source lines). l.Content itself is left untouched — this only
+	// affects what's displayed, not comment anchoring/hashing/export.
+	visibleContent := strings.ReplaceAll(l.Content, "\t", "    ")
+	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, visibleContent)
 	if !showNumbers {
 		return content
 	}

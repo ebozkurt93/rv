@@ -1,10 +1,12 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -173,6 +175,88 @@ func TestFitLineWithBackgroundPaddingItselfIsTinted(t *testing.T) {
 	afterText := got[strings.Index(got, "hi")+len("hi"):]
 	if !strings.Contains(afterText, "\033[48;2;") {
 		t.Fatalf("expected the padding after the text to carry its own background escape (not rely on the leading one, which s's own trailing reset already canceled), got %q", got)
+	}
+}
+
+// TestWrapLineDoesNotPreemptivelyPadWithPlainSpaces guards the actual root
+// cause of a persistent "wrapped tinted lines have an untinted gap" bug:
+// lipgloss.Style.Width() (which wrapLine uses to split long lines) doesn't
+// just wrap — it also right-pads every resulting physical line to exactly
+// width with plain, unstyled spaces. That meant a wrapped line arrived at
+// fitLineWithBackground already at full width, so its "if w < width" padding
+// branch (which tints the padding) never ran — the wrap-added padding
+// stayed plain, uncolored space no matter what fitLineWithBackground did.
+func TestWrapLineDoesNotPreemptivelyPadWithPlainSpaces(t *testing.T) {
+	lines := wrapLine("short", 20)
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly one line, got %d: %q", len(lines), lines)
+	}
+	if w := ansi.StringWidth(lines[0]); w >= 20 {
+		t.Fatalf("expected wrapLine to leave short-line padding for the caller (fitLineWithBackground) to add, got %q (width %d)", lines[0], w)
+	}
+}
+
+// TestRenderLineExpandsTabsBeforeMeasuringWidth guards a real "border
+// visibly shifts" bug: ansi.StringWidth/ansi.Truncate (used throughout
+// render.go for column-exact layout) count a literal tab as 0-1 cells,
+// while a real terminal jumps it to the next tab-stop (up to 8 columns) —
+// undercounting the true rendered width of any tab-indented line (i.e.
+// almost every Go source line) and throwing off truncation/padding.
+func TestRenderLineExpandsTabsBeforeMeasuringWidth(t *testing.T) {
+	old := 1
+	out := renderLine(pickLexer("a.go"), Line{Kind: LineContext, Content: "\treturn s", OldLine: &old, NewLine: &old}, false, 1, false)
+	if strings.Contains(out, "\t") {
+		t.Fatalf("expected the tab to be expanded to spaces before rendering, got %q", out)
+	}
+}
+
+// TestWrappedTintedLineFullyCoversBothPhysicalLines is the end-to-end
+// reproduction of the reported bug: a long comment on an added line, with
+// wrap on, at a width that forces a mid-token break. Every physical line
+// renderDiff produces for it — including the second one's leading edge and
+// every line's trailing padding — must carry the tint.
+func TestWrappedTintedLineFullyCoversBothPhysicalLines(t *testing.T) {
+	withTempHome(t)
+	lipgloss.SetColorProfile(termenv.TrueColor)
+
+	new1 := 1
+	fd := FileDiff{
+		Path:   "x.go",
+		Status: FileModified,
+		Hunks: []Hunk{{Header: "h", Lines: []Line{
+			{Kind: LineAdded, Content: "// bg is prepended before s itself, not just appended after for the padding", NewLine: &new1},
+		}}},
+	}
+	m := newModel("/tmp/repo", []FileDiff{fd}, Session{}, nil)
+	m.wrapLines = true
+	m.width = 78
+	m.height = 10
+
+	out := m.renderDiff()
+	rows := strings.Split(out, "\n")
+	var contentRows []string
+	for _, r := range rows {
+		if strings.Contains(r, "\033[48;2;") {
+			contentRows = append(contentRows, r)
+		}
+	}
+	if len(contentRows) < 2 {
+		t.Fatalf("expected the long comment to wrap into at least 2 tinted physical lines, got %d: %q", len(contentRows), out)
+	}
+
+	// This is the exact signature of the bug: wrapLine's own Style.Width()
+	// closes an open style with a bare reset ("\x1b[m", no "0") right at
+	// the word-wrap cut point, then pads with plain spaces — if nothing
+	// re-applies the background between that bare reset and the line's
+	// final reset, the gap in between renders with no color at all. A
+	// single space right before the final reset is renderBorderedRaw's own
+	// intentional 1-space margin before the border character, not a bug —
+	// require 2+ to only catch a real unpainted padding run.
+	broken := regexp.MustCompile(`\x1b\[m {2,}\x1b\[0m`)
+	for _, r := range contentRows {
+		if broken.MatchString(r) {
+			t.Fatalf("found wrapLine's bare reset immediately followed by an unpainted gap: %q", r)
+		}
 	}
 }
 
