@@ -36,7 +36,13 @@ var (
 
 	panelBorder = lipgloss.RoundedBorder()
 
-	sidebarWidth = 44
+	// maxSidebarWidth/minSidebarWidth bound (model).sidebarWidth() — it
+	// shrinks to fit the longest file path when that's narrower than the
+	// max, rather than always claiming the full width regardless of
+	// content.
+	maxSidebarWidth = 44
+	minSidebarWidth = 24
+
 	// borderOverhead is how much a bordered+padded panel adds beyond its
 	// content width/height (1 col/row of border plus 1 col of horizontal
 	// padding on each side).
@@ -72,7 +78,32 @@ func (m model) diffPaneSidebarWidth() int {
 	if m.sidebarHidden {
 		return 0
 	}
-	return sidebarWidth
+	return m.sidebarWidth()
+}
+
+// sidebarWidth sizes the sidebar to its longest file path (plus the row's
+// fixed prefix/marker/checkmark/spacing overhead and the panel's own
+// border+padding), capped at maxSidebarWidth and floored at
+// minSidebarWidth — so a diff with only a few short filenames doesn't force
+// a sidebar as wide as one with deeply nested paths. Sized off the full
+// file list rather than whatever's currently visible under a filter, so
+// the layout doesn't resize as you type into the file-name search.
+func (m model) sidebarWidth() int {
+	longest := 0
+	for _, fr := range m.files {
+		if l := len([]rune(fr.file.Path)); l > longest {
+			longest = l
+		}
+	}
+	const rowOverhead = 5 // prefix(2) + marker(1) + check(1) + space(1)
+	want := longest + rowOverhead + borderOverheadW
+	if want > maxSidebarWidth {
+		want = maxSidebarWidth
+	}
+	if want < minSidebarWidth {
+		want = minSidebarWidth
+	}
+	return want
 }
 
 func (m model) renderHeader() string {
@@ -214,7 +245,7 @@ func clampScroll(cursor, total, height int) int {
 }
 
 func (m model) renderSidebar() string {
-	innerW := sidebarWidth - borderOverheadW
+	innerW := m.sidebarWidth() - borderOverheadW
 	innerH := m.bodyHeight() - borderOverheadH
 	if innerH < 1 {
 		innerH = 1

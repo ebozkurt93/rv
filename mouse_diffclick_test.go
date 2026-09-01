@@ -76,9 +76,8 @@ func TestClickDiffLineWithWrapFocusesCorrectRowRegardlessOfWhichSubLine(t *testi
 	}
 
 	y := m.headerHeight() + 1 + subLineIdx
-	// X must land in the diff pane, not the sidebar (sidebarWidth=44 here
-	// leaves the diff pane only [44,60) wide at m.width=60).
-	mm, _ = m.Update(tea.MouseMsg{X: sidebarWidth + 2, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	// X must land in the diff pane, not the sidebar.
+	mm, _ = m.Update(tea.MouseMsg{X: m.sidebarWidth() + 2, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	m2 := mm.(model)
 
 	line, ok := m2.currentLine()

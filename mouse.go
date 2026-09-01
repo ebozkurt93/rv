@@ -25,7 +25,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) {
 		return
 	}
 
-	overSidebar := !m.sidebarHidden && msg.X < sidebarWidth
+	overSidebar := !m.sidebarHidden && msg.X < m.sidebarWidth()
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
