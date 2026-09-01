@@ -9,7 +9,7 @@ func TestRefreshSessionIfChangedPicksUpExternalWrite(t *testing.T) {
 	withTempHome(t)
 	repo := "/repo/one"
 
-	m := newModel(repo, nil, Session{RepoRoot: repo})
+	m := newModel(repo, nil, Session{RepoRoot: repo}, nil)
 
 	// Simulate an agent replying via `rv comment reply` in another process:
 	// a direct write to the session file, bypassing this model entirely.
@@ -30,7 +30,7 @@ func TestRefreshSessionIfChangedNoOpWhenUnchanged(t *testing.T) {
 	repo := "/repo/one"
 	must(t, saveSession(repo, Session{RepoRoot: repo}))
 
-	m := newModel(repo, nil, Session{RepoRoot: repo})
+	m := newModel(repo, nil, Session{RepoRoot: repo}, nil)
 	m.session.Comments = []Comment{{ID: "local-only"}} // not persisted
 
 	m.refreshSessionIfChanged()

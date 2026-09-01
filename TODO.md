@@ -4,9 +4,11 @@ Working list from comparing `rv` against Hunk/difit/tuicr and general git-TUI
 conventions (lazygit, tig). Worked through top to bottom; check items off as
 they land, with the commit that did it.
 
-- [ ] **Flexible diff target.** Hardcoded to `git diff HEAD` right now — no
-      way to review a branch (`rv main..feature`), staged changes only
-      (`rv --staged`), or a specific commit. Biggest functional ceiling.
+- [x] **Flexible diff target.** `rv <spec>` now passes any extra argument(s)
+      straight through to `git diff` — `rv main..feature`, `rv --staged`,
+      `rv HEAD~3`, etc. — instead of hardcoding `HEAD`. The header shows
+      what you're diffing against (`vs HEAD`, `vs main..feature`, ...), and
+      `R` re-diffs against the same spec.
 - [ ] **Open in `$EDITOR`.** No way to jump from the line under the cursor
       into an actual editor to make a change while reviewing. Standard in
       lazygit/tig/gh.

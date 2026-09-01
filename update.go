@@ -40,7 +40,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // background session poll never covers, since it only watches
 // comments/replies) and the session, without restarting the program.
 func (m *model) refreshAll() {
-	diffFiles, err := loadDiffFiles()
+	diffFiles, err := loadDiffFiles(m.diffSpec)
 	if err != nil {
 		m.err = err
 		return

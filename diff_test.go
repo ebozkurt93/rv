@@ -33,6 +33,30 @@ func TestGitVCSDiffUsesHEAD(t *testing.T) {
 	}
 }
 
+func TestGitVCSDiffUsesCustomSpec(t *testing.T) {
+	runner := &fakeGitRunner{output: "diff --git a/x b/x\n"}
+	vcs := gitVCS{runner: runner, spec: []string{"main..feature"}}
+
+	if _, err := vcs.Diff(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0][0] != "diff" || runner.calls[0][1] != "main..feature" {
+		t.Fatalf("unexpected git invocation: %v", runner.calls)
+	}
+}
+
+func TestGitVCSDiffSpecStagedPassedThrough(t *testing.T) {
+	runner := &fakeGitRunner{output: ""}
+	vcs := gitVCS{runner: runner, spec: []string{"--staged"}}
+
+	if _, err := vcs.Diff(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if runner.calls[0][1] != "--staged" {
+		t.Fatalf("unexpected git invocation: %v", runner.calls)
+	}
+}
+
 func TestGitVCSRepoRoot(t *testing.T) {
 	runner := &fakeGitRunner{output: "/repo/root\n"}
 	vcs := gitVCS{runner: runner}

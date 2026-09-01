@@ -70,7 +70,7 @@ func (m model) renderHeader() string {
 			unresolved++
 		}
 	}
-	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo)
+	title := styleTitle.Render("rv") + styleMuted.Render(" · "+repo+" · vs "+m.diffLabel())
 	counts := styleMuted.Render(fmt.Sprintf("%d file(s), %d comment(s), %d unresolved", len(m.files), total, unresolved))
 
 	width := m.width

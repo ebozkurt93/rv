@@ -6,44 +6,63 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// knownSubcommands are rv's own subcommands. Anything else in args[0] is
+// treated as a `git diff` spec (a ref, a "a..b" range, "--staged", etc.) and
+// passed straight through — see runTUI.
+var knownSubcommands = map[string]bool{
+	"session": true,
+	"comment": true,
+	"skill":   true,
+}
+
 func run(args []string) error {
 	if len(args) == 0 {
-		return runTUI()
+		return runTUI(nil)
 	}
 
-	switch args[0] {
-	case "version", "--version", "-v":
+	switch {
+	case args[0] == "version" || args[0] == "--version" || args[0] == "-v":
 		fmt.Println("rv", version)
 		return nil
-	case "session":
-		return runSession(args[1:])
-	case "comment":
-		return runComment(args[1:])
-	case "skill":
-		return runSkill(args[1:])
+	case knownSubcommands[args[0]]:
+		return dispatchSubcommand(args[0], args[1:])
 	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		return runTUI(args)
 	}
 }
 
-// loadDiffFiles re-runs and re-parses `git diff HEAD` against the current
-// working tree — used both for the TUI's initial load and for its manual
-// refresh (see (*model).refreshAll in update.go).
-func loadDiffFiles() ([]FileDiff, error) {
-	raw, err := (gitVCS{runner: gitRunner}).Diff()
+func dispatchSubcommand(name string, rest []string) error {
+	switch name {
+	case "session":
+		return runSession(rest)
+	case "comment":
+		return runComment(rest)
+	case "skill":
+		return runSkill(rest)
+	default:
+		return fmt.Errorf("unknown command %q", name)
+	}
+}
+
+// loadDiffFiles re-runs and re-parses `git diff <diffSpec>` against the
+// current working tree — used both for the TUI's initial load and for its
+// manual refresh (see (*model).refreshAll in update.go). A nil/empty
+// diffSpec means the default: working tree vs HEAD.
+func loadDiffFiles(diffSpec []string) ([]FileDiff, error) {
+	raw, err := (gitVCS{runner: gitRunner, spec: diffSpec}).Diff()
 	if err != nil {
 		return nil, err
 	}
 	return ParseDiff(raw)
 }
 
-func runTUI() error {
+func runTUI(diffSpec []string) error {
 	repoRoot, err := currentRepoRoot()
 	if err != nil {
 		return err
 	}
 
-	diffFiles, err := loadDiffFiles()
+	diffFiles, err := loadDiffFiles(diffSpec)
 	if err != nil {
 		return fmt.Errorf("parsing diff: %w", err)
 	}
@@ -53,7 +72,7 @@ func runTUI() error {
 		return err
 	}
 
-	m := newModel(repoRoot, diffFiles, session)
+	m := newModel(repoRoot, diffFiles, session, diffSpec)
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }

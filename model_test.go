@@ -15,7 +15,7 @@ func TestSetDiffFilesKeepsSelectionOnSamePath(t *testing.T) {
 	m := newModel("/repo", []FileDiff{
 		fileDiffWithLines("a.go", 5),
 		fileDiffWithLines("b.go", 5),
-	}, Session{})
+	}, Session{}, nil)
 	m.selectFile(1) // b.go
 	m.lineIndex = 3
 
@@ -36,7 +36,7 @@ func TestSetDiffFilesKeepsSelectionOnSamePath(t *testing.T) {
 }
 
 func TestSetDiffFilesClampsLineIndexWhenFileShrinks(t *testing.T) {
-	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 10)}, Session{})
+	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 10)}, Session{}, nil)
 	m.lineIndex = 9
 
 	m.setDiffFiles([]FileDiff{fileDiffWithLines("a.go", 3)})
@@ -52,7 +52,7 @@ func TestSetDiffFilesFallsBackWhenFileDisappears(t *testing.T) {
 	m := newModel("/repo", []FileDiff{
 		fileDiffWithLines("a.go", 5),
 		fileDiffWithLines("b.go", 5),
-	}, Session{})
+	}, Session{}, nil)
 	m.selectFile(1) // b.go
 
 	m.setDiffFiles([]FileDiff{fileDiffWithLines("a.go", 5)})
@@ -63,7 +63,7 @@ func TestSetDiffFilesFallsBackWhenFileDisappears(t *testing.T) {
 }
 
 func TestSetDiffFilesEmptyResultResetsCursor(t *testing.T) {
-	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 5)}, Session{})
+	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 5)}, Session{}, nil)
 	m.setDiffFiles(nil)
 
 	if len(m.files) != 0 || m.lineIndex != 0 {

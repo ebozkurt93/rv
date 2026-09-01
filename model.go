@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +50,7 @@ func flattenFile(fd FileDiff) fileRows {
 
 type model struct {
 	repoRoot string
+	diffSpec []string // what we're diffing, e.g. ["HEAD"] or ["main..feature"] — see gitVCS.DiffSpec
 	files    []fileRows
 	session  Session
 
@@ -74,13 +76,14 @@ type model struct {
 	sessionMTime time.Time
 }
 
-func newModel(repoRoot string, diffFiles []FileDiff, session Session) model {
+func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec []string) model {
 	files := make([]fileRows, 0, len(diffFiles))
 	for _, fd := range diffFiles {
 		files = append(files, flattenFile(fd))
 	}
 	m := model{
 		repoRoot: repoRoot,
+		diffSpec: diffSpec,
 		files:    files,
 		session:  session,
 		keys:     defaultKeymap(),
@@ -92,6 +95,15 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session) model {
 }
 
 func (m model) Init() tea.Cmd { return pollSessionCmd() }
+
+// diffLabel is what's shown in the header for "what am I diffing" — e.g.
+// "HEAD" (the default) or "main..feature".
+func (m model) diffLabel() string {
+	if len(m.diffSpec) == 0 {
+		return "HEAD"
+	}
+	return strings.Join(m.diffSpec, " ")
+}
 
 // currentRows returns the rows for the currently selected file, or nil if
 // there are no changed files.

@@ -42,10 +42,14 @@ func (execGitRunner) Run(args ...string) (string, error) {
 
 var gitRunner GitRunner = execGitRunner{}
 
-// gitVCS is the git-backed VCS implementation. Diff scope for v1 is the
-// working tree vs HEAD (staged + unstaged changes to tracked files).
+// gitVCS is the git-backed VCS implementation. Spec is passed straight
+// through as extra arguments to `git diff` — e.g. []string{"HEAD"} (the
+// default), []string{"--staged"}, []string{"main..feature"}, or
+// []string{"HEAD~3"} — rather than rv parsing and reimplementing any of
+// git's own revision syntax.
 type gitVCS struct {
 	runner GitRunner
+	spec   []string
 }
 
 func (g gitVCS) RepoRoot() (string, error) {
@@ -56,8 +60,19 @@ func (g gitVCS) RepoRoot() (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// DiffSpec returns the effective spec, defaulting to "HEAD" (working tree
+// vs HEAD) when none was given.
+func (g gitVCS) DiffSpec() []string {
+	if len(g.spec) == 0 {
+		return []string{"HEAD"}
+	}
+	return g.spec
+}
+
 func (g gitVCS) Diff() (string, error) {
-	return g.runner.Run("diff", "HEAD", "--no-color", "--no-ext-diff")
+	args := append([]string{"diff"}, g.DiffSpec()...)
+	args = append(args, "--no-color", "--no-ext-diff")
+	return g.runner.Run(args...)
 }
 
 // LineKind identifies which side(s) of a diff a line belongs to.
