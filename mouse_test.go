@@ -6,7 +6,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func threeSimpleFilesModel() model {
+func threeSimpleFilesModel(t *testing.T) model {
+	t.Helper()
+	withTempHome(t) // newModel loads persisted UI prefs (sidebar/wrap/etc) — sandbox it
 	m := newModel("/repo", []FileDiff{
 		fileDiffWithLines("a.go", 3),
 		fileDiffWithLines("b.go", 3),
@@ -21,7 +23,7 @@ func threeSimpleFilesModel() model {
 // this exact configuration — see the layout probed while building this.
 
 func TestClickSidebarRowSelectsThatFile(t *testing.T) {
-	m := threeSimpleFilesModel()
+	m := threeSimpleFilesModel(t)
 
 	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
 	m2 := mm.(model)
@@ -37,7 +39,7 @@ func TestClickSidebarRowSelectsThatFile(t *testing.T) {
 }
 
 func TestClickOutsideSidebarRowsIsIgnored(t *testing.T) {
-	m := threeSimpleFilesModel()
+	m := threeSimpleFilesModel(t)
 	before := m.fileIndex
 
 	// y=3 is the sidebar's top border, not a file row.
@@ -49,7 +51,7 @@ func TestClickOutsideSidebarRowsIsIgnored(t *testing.T) {
 }
 
 func TestClickInDiffPaneDoesNotChangeFileSelection(t *testing.T) {
-	m := threeSimpleFilesModel()
+	m := threeSimpleFilesModel(t)
 	before := m.fileIndex
 
 	mm, _ := m.Update(tea.MouseMsg{X: 60, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
@@ -60,7 +62,7 @@ func TestClickInDiffPaneDoesNotChangeFileSelection(t *testing.T) {
 }
 
 func TestWheelOverSidebarChangesFileSelection(t *testing.T) {
-	m := threeSimpleFilesModel() // starts on a.go
+	m := threeSimpleFilesModel(t) // starts on a.go
 
 	mm, _ := m.Update(tea.MouseMsg{X: 5, Y: 5, Button: tea.MouseButtonWheelDown})
 	m2 := mm.(model)
@@ -76,7 +78,7 @@ func TestWheelOverSidebarChangesFileSelection(t *testing.T) {
 }
 
 func TestWheelOverDiffPaneMovesCursorNotFile(t *testing.T) {
-	m := threeSimpleFilesModel()
+	m := threeSimpleFilesModel(t)
 	beforeFile := m.fileIndex
 	beforeLine := m.lineIndex
 
@@ -91,7 +93,7 @@ func TestWheelOverDiffPaneMovesCursorNotFile(t *testing.T) {
 }
 
 func TestMouseIgnoredOutsideNormalMode(t *testing.T) {
-	m := threeSimpleFilesModel()
+	m := threeSimpleFilesModel(t)
 	m.mode = modeHelp
 	before := m.fileIndex
 
@@ -103,6 +105,7 @@ func TestMouseIgnoredOutsideNormalMode(t *testing.T) {
 }
 
 func TestClickSidebarRespectsScroll(t *testing.T) {
+	withTempHome(t)
 	// More files than fit on screen, selection deep in the list so the
 	// sidebar has scrolled — a click must map through the same scroll the
 	// frame was actually drawn with, not row 0's naive offset.

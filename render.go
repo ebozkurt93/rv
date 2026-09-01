@@ -330,7 +330,7 @@ func (m model) renderDiff() string {
 		innerH = 1
 	}
 
-	lines, cursorLine := m.buildDiffLines(innerW)
+	lines, cursorLine, _ := m.buildDiffLines(innerW)
 	scroll := clampScroll(cursorLine, len(lines), innerH)
 	window := fitBlock(lines[scroll:min(scroll+innerH, len(lines))], innerH)
 	for i, l := range window {
@@ -350,22 +350,33 @@ func (m model) renderDiff() string {
 // scroll to keep it in view. width is the diff pane's content width — only
 // used when m.wrapLines is on (see appendText below); ignored otherwise,
 // since renderDiff's later fitLine pass handles plain truncation.
-func (m model) buildDiffLines(width int) (lines []string, cursorLine int) {
+//
+// rowFor is lines' parallel index: rowFor[k] is the currentRows() index
+// that produced lines[k] — every wrapped sub-line, and every comment/reply/
+// editor line attached to a row, maps back to that same row. Used by
+// mouse.go to turn a click's screen Y back into a row to focus, replaying
+// this exact same construction (including scroll) rather than assuming one
+// rendered line always equals one row, which wrap mode breaks.
+func (m model) buildDiffLines(width int) (lines []string, cursorLine int, rowFor []int) {
 	rows := m.currentRows()
 	file := m.files[m.fileIndex].file
 
-	appendText := func(text string) {
+	appendText := func(text string, rowIdx int) {
 		if m.wrapLines {
-			lines = append(lines, wrapLine(text, width)...)
-		} else {
-			lines = append(lines, text)
+			for _, l := range wrapLine(text, width) {
+				lines = append(lines, l)
+				rowFor = append(rowFor, rowIdx)
+			}
+			return
 		}
+		lines = append(lines, text)
+		rowFor = append(rowFor, rowIdx)
 	}
 
 	for i, row := range rows {
 		if row.kind == rowHunkHeader {
 			start := len(lines)
-			appendText(styleHunk.Render("@@ " + row.hunkHeader))
+			appendText(styleHunk.Render("@@ "+row.hunkHeader), i)
 			if i == m.lineIndex {
 				cursorLine = start
 			}
@@ -378,19 +389,22 @@ func (m model) buildDiffLines(width int) (lines []string, cursorLine int) {
 			cursorLine = start
 			text = styleCursor.Render(text)
 		}
-		appendText(text)
+		appendText(text, i)
 
 		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
-			appendText(renderComment(c))
+			appendText(renderComment(c), i)
 			for _, r := range c.Replies {
-				appendText(renderReply(r))
+				appendText(renderReply(r), i)
 			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
-			lines = append(lines, strings.Split(m.renderCommentEditor(), "\n")...)
+			for _, l := range strings.Split(m.renderCommentEditor(), "\n") {
+				lines = append(lines, l)
+				rowFor = append(rowFor, i)
+			}
 		}
 	}
-	return lines, cursorLine
+	return lines, cursorLine, rowFor
 }
 
 // wrapLine word-wraps s (which may already carry ANSI styling — lipgloss's

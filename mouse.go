@@ -49,7 +49,48 @@ func (m *model) handleMouse(msg tea.MouseMsg) {
 	}
 	if overSidebar {
 		m.clickSidebarRow(msg.Y)
+	} else {
+		m.clickDiffRow(msg.Y)
 	}
+}
+
+// clickDiffRow maps a screen Y coordinate to a row in the current file and
+// focuses it, by rebuilding the exact same line list + scroll renderDiff
+// drew the frame with (see buildDiffLines) rather than assuming one
+// rendered line always equals one row — wrap mode breaks that assumption,
+// since one row can span several rendered lines.
+func (m *model) clickDiffRow(y int) {
+	innerW := m.width - m.diffPaneSidebarWidth() - borderOverheadW
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := m.bodyHeight() - borderOverheadH
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	lines, cursorLine, rowFor := m.buildDiffLines(innerW)
+	scroll := clampScroll(cursorLine, len(lines), innerH)
+
+	row := y - m.headerHeight() - 1 // +1 for the diff panel's own top border row
+	if row < 0 || row >= innerH {
+		return
+	}
+	idx := scroll + row
+	if idx < 0 || idx >= len(rowFor) {
+		return
+	}
+
+	rows := m.currentRows()
+	target := rowFor[idx]
+	if target < 0 || target >= len(rows) {
+		return
+	}
+	// A click can land on a hunk-header line (or, in wrap mode, on a
+	// comment/reply line whose row happens to be one) — nearestContentRow
+	// keeps the cursor invariant (never on a header) instead of ignoring
+	// the click outright.
+	m.lineIndex = nearestContentRow(rows, target)
 }
 
 // clickSidebarRow maps a screen Y coordinate to a sidebar row, replaying
