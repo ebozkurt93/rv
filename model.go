@@ -90,6 +90,14 @@ type model struct {
 	mode  mode
 	input string
 
+	// editingCommentID/replyingToCommentID are set instead of "" while
+	// modeComment is editing an existing comment's body, or adding a new
+	// reply to one, rather than composing a brand-new top-level comment —
+	// see commentActionForCurrentLine and addCommentUnderCursor. At most one
+	// of the two is ever set at a time.
+	editingCommentID    string
+	replyingToCommentID string
+
 	// helpScroll is how many lines of helpRows() are scrolled past, while
 	// mode == modeHelp — reset to 0 each time the overlay opens (see
 	// keys.Help in updateNormal) so it never reopens mid-scroll from

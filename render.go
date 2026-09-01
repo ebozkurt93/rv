@@ -559,9 +559,13 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		appendText(text, i, true)
 
 		for _, c := range commentsOnLine(m.session.Comments, file.Path, row.line) {
-			appendText(renderComment(c), i, false)
+			for _, l := range strings.Split(renderComment(c), "\n") {
+				appendText(l, i, false)
+			}
 			for _, r := range c.Replies {
-				appendText(renderReply(r), i, false)
+				for _, l := range strings.Split(renderReply(r), "\n") {
+					appendText(l, i, false)
+				}
 			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
@@ -633,6 +637,8 @@ func (m model) helpRows() []helpRow {
 		{keys: k.Search, desc: "filter files by name (enter confirms, esc cancels)"},
 		{section: "Comments"},
 		{keys: k.AddComment, desc: "add a comment on the line under the cursor"},
+		{keys: k.CommentNewline, desc: "while composing: insert a newline instead of submitting"},
+		{keys: k.CommentEditor, desc: "while composing: edit the comment body in $EDITOR"},
 		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
 		{keys: k.ToggleReviewed, desc: "mark/unmark the current file reviewed (auto-clears if it changes)"},
@@ -703,22 +709,41 @@ func (m model) renderHelp() string {
 		Render(strings.Join(window, "\n"))
 }
 
-// renderCommentEditor is the inline "leave a comment" row shown directly
+// renderCommentEditor is the inline "leave a comment" row(s) shown directly
 // beneath the line it will be anchored to, rather than in the footer, so the
 // comment stays visually attached to the code it's about. Styled to match
 // renderComment/renderReply (same indent/prefix convention, no border) —
 // it's a comment that just hasn't been submitted yet, not a modal dialog.
+// m.input can span multiple lines (alt+enter inserts one, see updateComment)
+// — every line but the last is rendered in full; only the in-progress last
+// line gets the "keep the tail visible, not the start" truncation and the
+// cursor block, since that's the one still being typed into.
 func (m model) renderCommentEditor() string {
 	width := m.width - m.diffPaneSidebarWidth() - borderOverheadW
 	if width < 10 {
 		width = 10
 	}
-	prefix := "  ▏✎ "
-	// Keep the tail of what's typed visible (not the start) as input grows
-	// past the row — and truncate before rendering, not after, since Width()
-	// would otherwise wrap rather than clip an overlong line.
-	input := truncateKeepingTail(m.input, width-lipgloss.Width(prefix)-1)
-	return styleComment.Render(prefix + input + "█")
+	// The icon distinguishes what submitting will do — matches
+	// commentActionForCurrentLine's own decision (see AddComment in
+	// updateNormal), so what's about to happen is visible while typing.
+	icon := "✎" // editing in place, or a brand new comment
+	if m.replyingToCommentID != "" {
+		icon = "↩" // appending a new reply to an existing thread
+	}
+	firstPrefix, contPrefix := "  ▏"+icon+" ", "     "
+	inputLines := strings.Split(m.input, "\n")
+	rendered := make([]string, len(inputLines))
+	for i, l := range inputLines {
+		prefix := contPrefix
+		if i == 0 {
+			prefix = firstPrefix
+		}
+		if i == len(inputLines)-1 {
+			l = truncateKeepingTail(l, width-lipgloss.Width(prefix)-1) + "█"
+		}
+		rendered[i] = styleComment.Render(prefix + l)
+	}
+	return strings.Join(rendered, "\n")
 }
 
 // renderLine renders one diff line's gutter + prefix + syntax-highlighted
@@ -809,8 +834,12 @@ func lineNumStr(n *int) string {
 	return fmt.Sprintf("%d", *n)
 }
 
+// renderComment/renderReply's own trailing "\n" between the first line and
+// any continuation lines is intentional — the caller (buildDiffLinesDetailed)
+// splits back on "\n" into separate rendered rows, exactly like
+// renderCommentEditor does for a multi-line comment still being typed.
 func renderComment(c Comment) string {
-	text := "  ▏💬 " + c.Author + ": " + c.Body
+	text := commentBodyLines("  ▏💬 "+c.Author+": ", "     ", c.Body)
 	if c.Resolved {
 		return styleResolved.Render(text + " (resolved)")
 	}
@@ -818,7 +847,19 @@ func renderComment(c Comment) string {
 }
 
 func renderReply(r Reply) string {
-	return styleMuted.Render("    └─ " + r.Author + ": " + r.Body)
+	text := commentBodyLines("    └─ "+r.Author+": ", "       ", r.Body)
+	return styleMuted.Render(text)
+}
+
+// commentBodyLines joins body's lines with firstPrefix on the first and
+// contPrefix (aligned under it) on every continuation line.
+func commentBodyLines(firstPrefix, contPrefix, body string) string {
+	lines := strings.Split(body, "\n")
+	text := firstPrefix + lines[0]
+	for _, cont := range lines[1:] {
+		text += "\n" + contPrefix + cont
+	}
+	return text
 }
 
 // firstKey returns keys' primary binding, for compact footer hints — the

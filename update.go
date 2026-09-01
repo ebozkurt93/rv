@@ -35,6 +35,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "back from editor"
 		}
 		return m, nil
+	case commentEditorClosedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		} else if m.mode == modeComment {
+			m.input = msg.content
+		}
+		return m, nil
 	case tea.MouseMsg:
 		if m.mode == modeNormal {
 			m.handleMouse(msg)
@@ -266,6 +273,14 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if _, ok := m.currentLine(); ok {
 			m.mode = modeComment
 			m.input = ""
+			m.editingCommentID = ""
+			m.replyingToCommentID = ""
+			if c, editing, replying := m.commentActionForCurrentLine(); editing {
+				m.input = c.Body
+				m.editingCommentID = c.ID
+			} else if replying {
+				m.replyingToCommentID = c.ID
+			}
 		}
 
 	case keyMatches(msg, k.DeleteComment):
@@ -355,10 +370,18 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.Cancel):
 		m.mode = modeNormal
 		m.input = ""
+		m.editingCommentID = ""
+		m.replyingToCommentID = ""
 	case keyMatches(msg, k.Confirm):
 		m.addCommentUnderCursor()
 		m.mode = modeNormal
 		m.input = ""
+		m.editingCommentID = ""
+		m.replyingToCommentID = ""
+	case keyMatches(msg, k.CommentNewline):
+		m.input += "\n"
+	case keyMatches(msg, k.CommentEditor):
+		return m, openCommentInEditorCmd(m.input)
 	case keyMatches(msg, k.Backspace):
 		if len(m.input) > 0 {
 			r := []rune(m.input)
@@ -613,27 +636,85 @@ func (m *model) snapToVisibleFile() {
 	m.selectFile(vis[0])
 }
 
+// commentActionForCurrentLine decides what pressing AddComment on the
+// cursor's line should do: edit the user's own most recent comment there in
+// place if nothing's replied to it yet, add a new reply to it if something
+// has (rewriting the body of a comment someone already responded to would
+// silently change what they were responding to — a new message reads as
+// "and separately, ..." instead), or leave both false to start a brand new
+// comment if there's nothing of the user's on this line yet. A resolved
+// match is treated the same as an unresolved one: editing/replying
+// un-resolves it (see addCommentUnderCursor) rather than requiring a
+// separate "reopen" step or starting a second, parallel thread.
+func (m model) commentActionForCurrentLine() (comment Comment, editing, replying bool) {
+	comments := m.commentsForCurrentLine()
+	for i := len(comments) - 1; i >= 0; i-- {
+		if comments[i].Author != "user" {
+			continue
+		}
+		if len(comments[i].Replies) == 0 {
+			return comments[i], true, false
+		}
+		return comments[i], false, true
+	}
+	return Comment{}, false, false
+}
+
 func (m *model) addCommentUnderCursor() {
-	line, ok := m.currentLine()
-	if !ok || m.input == "" {
+	if m.input == "" {
 		return
 	}
-	file := m.files[m.fileIndex].file.Path
 
-	comment := Comment{
-		ID:        newCommentID(),
-		File:      file,
-		OldLine:   line.OldLine,
-		NewLine:   line.NewLine,
-		Body:      m.input,
-		Author:    "user",
-		CreatedAt: time.Now(),
+	switch {
+	case m.editingCommentID != "":
+		id, body := m.editingCommentID, m.input
+		m.mutateSession(func(s Session) (Session, error) {
+			for i := range s.Comments {
+				if s.Comments[i].ID == id {
+					s.Comments[i].Body = body
+					s.Comments[i].Resolved = false
+					break
+				}
+			}
+			return s, nil
+		})
+
+	case m.replyingToCommentID != "":
+		id, body := m.replyingToCommentID, m.input
+		reply := Reply{ID: newReplyID(), Body: body, Author: "user", CreatedAt: time.Now()}
+		m.mutateSession(func(s Session) (Session, error) {
+			for i := range s.Comments {
+				if s.Comments[i].ID == id {
+					s.Comments[i].Replies = append(s.Comments[i].Replies, reply)
+					s.Comments[i].Resolved = false
+					break
+				}
+			}
+			return s, nil
+		})
+
+	default:
+		line, ok := m.currentLine()
+		if !ok {
+			return
+		}
+		file := m.files[m.fileIndex].file.Path
+
+		comment := Comment{
+			ID:        newCommentID(),
+			File:      file,
+			OldLine:   line.OldLine,
+			NewLine:   line.NewLine,
+			Body:      m.input,
+			Author:    "user",
+			CreatedAt: time.Now(),
+		}
+
+		m.mutateSession(func(s Session) (Session, error) {
+			s.Comments = append(s.Comments, comment)
+			return s, nil
+		})
 	}
-
-	m.mutateSession(func(s Session) (Session, error) {
-		s.Comments = append(s.Comments, comment)
-		return s, nil
-	})
 }
 
 func (m *model) deleteCommentUnderCursor() {

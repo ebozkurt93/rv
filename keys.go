@@ -37,6 +37,8 @@ type Keymap struct {
 	Confirm           []string
 	Cancel            []string
 	Backspace         []string
+	CommentNewline    []string // insert a newline while composing a comment, instead of submitting
+	CommentEditor     []string // edit the in-progress comment body in $EDITOR
 }
 
 func defaultKeymap() Keymap {
@@ -71,6 +73,8 @@ func defaultKeymap() Keymap {
 		Confirm:           []string{"enter"},
 		Cancel:            []string{"esc"},
 		Backspace:         []string{"backspace"},
+		CommentNewline:    []string{"alt+enter"},
+		CommentEditor:     []string{"ctrl+e"},
 	}
 }
 
