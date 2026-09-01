@@ -573,7 +573,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				appendText(l, i, false)
 			}
 			for _, r := range c.Replies {
-				for _, l := range strings.Split(renderReply(r), "\n") {
+				for _, l := range strings.Split(renderReply(r, c.Resolved), "\n") {
 					appendText(l, i, false)
 				}
 			}
@@ -642,6 +642,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.PrevHunk, desc: "prev hunk (current file only)"},
 		{keys: k.NextComment, desc: "next unresolved comment (across files, wraps)"},
 		{keys: k.PrevComment, desc: "prev unresolved comment (across files, wraps)"},
+		{keys: k.ToggleCommentScope, desc: "toggle: make next/prev comment include resolved ones too"},
 		{keys: k.NextFile, desc: "next file"},
 		{keys: k.PrevFile, desc: "prev file"},
 		{keys: k.Search, desc: "filter files by name (enter confirms, esc cancels)"},
@@ -856,9 +857,16 @@ func renderComment(c Comment) string {
 	return styleComment.Render(text)
 }
 
-func renderReply(r Reply) string {
+// renderReply mutes a reply only once its thread is resolved — an active
+// thread's replies render in the normal comment color instead, so "this is
+// still open" reads clearly at a glance rather than every reply always
+// looking the same shade of gray regardless of status.
+func renderReply(r Reply, threadResolved bool) string {
 	text := commentBodyLines("    └─ "+r.Author+": ", "       ", r.Body)
-	return styleMuted.Render(text)
+	if threadResolved {
+		return styleMuted.Render(text)
+	}
+	return styleComment.Render(text)
 }
 
 // commentBodyLines joins body's lines with firstPrefix on the first and

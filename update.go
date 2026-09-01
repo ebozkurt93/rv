@@ -263,6 +263,13 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.jumpToComment(1)
 	case keyMatches(msg, k.PrevComment):
 		m.jumpToComment(-1)
+	case keyMatches(msg, k.ToggleCommentScope):
+		m.commentNavIncludeResolved = !m.commentNavIncludeResolved
+		if m.commentNavIncludeResolved {
+			m.status = "n/N now include resolved comments"
+		} else {
+			m.status = "n/N: unresolved comments only"
+		}
 
 	case keyMatches(msg, k.Bottom):
 		m.jumpTo(hadCount, count, true)
@@ -505,7 +512,7 @@ func (m *model) jumpToComment(dir int) {
 	type loc struct{ fileIdx, rowIdx int }
 	var locs []loc
 	for _, c := range m.session.Comments {
-		if c.Resolved {
+		if c.Resolved && !m.commentNavIncludeResolved {
 			continue
 		}
 		if fi, ri, ok := m.locateComment(c); ok {

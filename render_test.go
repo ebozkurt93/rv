@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func TestHelpOverlayTogglesWithoutChangingFrameHeight(t *testing.T) {
@@ -112,5 +114,23 @@ func TestCommentEditorHasNoBorder(t *testing.T) {
 	}
 	if !strings.Contains(out, "looks good") {
 		t.Fatalf("expected the typed input to appear in the rendered editor, got %q", out)
+	}
+}
+
+// TestReplyStyleReflectsThreadResolution guards the fix for "my next reply
+// is also looking gray? I've unresolved the entire thing" — a reply used to
+// always render muted regardless of resolved status, which read as "this
+// thread is still resolved" even right after un-resolving it. It should
+// only be muted when the thread actually is resolved.
+func TestReplyStyleReflectsThreadResolution(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI)
+	defer lipgloss.SetColorProfile(termenv.Ascii)
+
+	reply := Reply{Author: "agent", Body: "on it"}
+
+	unresolved := renderReply(reply, false)
+	resolved := renderReply(reply, true)
+	if unresolved == resolved {
+		t.Fatalf("expected resolved vs unresolved threads to style a reply differently")
 	}
 }

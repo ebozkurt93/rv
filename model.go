@@ -98,6 +98,12 @@ type model struct {
 	editingCommentID    string
 	replyingToCommentID string
 
+	// commentNavIncludeResolved widens n/N (jumpToComment) to also stop on
+	// resolved comments instead of skipping them — toggled by
+	// keys.ToggleCommentScope, left as a plain toggle (not persisted) rather
+	// than new movement keys, so n/N keep their existing muscle memory.
+	commentNavIncludeResolved bool
+
 	// helpScroll is how many lines of helpRows() are scrolled past, while
 	// mode == modeHelp — reset to 0 each time the overlay opens (see
 	// keys.Help in updateNormal) so it never reopens mid-scroll from

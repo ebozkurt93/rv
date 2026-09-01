@@ -136,6 +136,29 @@ func TestJumpToCommentSkipsResolvedAndWraps(t *testing.T) {
 	}
 }
 
+// TestJumpToCommentIncludesResolvedWhenScopeToggled guards keys.
+// ToggleCommentScope — n/N skip resolved comments by default, but include
+// them once commentNavIncludeResolved is on.
+func TestJumpToCommentIncludesResolvedWhenScopeToggled(t *testing.T) {
+	n1 := 1
+	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{Comments: []Comment{
+		{ID: "c_a", File: "a.go", NewLine: &n1, Resolved: true},
+	}}, nil)
+	m.fileIndex, m.lineIndex = 0, 2 // past the only (resolved) comment
+
+	m.jumpToComment(1)
+	if got, _ := m.currentLine(); got.NewLine != nil && *got.NewLine == n1 {
+		t.Fatalf("expected the resolved comment to still be skipped by default")
+	}
+
+	m.commentNavIncludeResolved = true
+	m.jumpToComment(1)
+	got, ok := m.currentLine()
+	if !ok || got.NewLine == nil || *got.NewLine != n1 {
+		t.Fatalf("expected the resolved comment reachable once scope includes resolved, got %+v ok=%v", got, ok)
+	}
+}
+
 func TestSessionModTimeZeroWhenMissing(t *testing.T) {
 	withTempHome(t)
 	mt, err := sessionModTime("/repo/never-written")
