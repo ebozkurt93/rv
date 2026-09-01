@@ -285,6 +285,10 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.persistUIPrefs()
 
 	case keyMatches(msg, k.Export):
+		if len(m.session.Comments) == 0 {
+			m.status = "nothing to export — no comments yet"
+			break
+		}
 		if path, err := exportSession(m.repoRoot, m.session, m.diffFiles(), formatMarkdown); err != nil {
 			m.err = err
 		} else {
@@ -292,6 +296,10 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case keyMatches(msg, k.CopyMarkdown):
+		if len(m.session.Comments) == 0 {
+			m.status = "nothing to copy — no comments yet"
+			break
+		}
 		if err := copyToClipboard(renderMarkdown(m.session, m.diffFiles())); err != nil {
 			m.err = err
 		} else {
@@ -299,6 +307,10 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case keyMatches(msg, k.CopyJSON):
+		if len(m.session.Comments) == 0 {
+			m.status = "nothing to copy — no comments yet"
+			break
+		}
 		data, err := renderJSON(m.session)
 		if err == nil {
 			err = copyToClipboard(string(data))
