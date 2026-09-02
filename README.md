@@ -4,6 +4,8 @@ A terminal UI for reviewing a `git diff`, with comments a coding agent can read 
 
 You review your working-tree changes in the TUI and leave comments anchored to specific lines. A coding agent (Claude Code, or anything else you point at it) picks those up with a couple of CLI subcommands, fixes the code, and replies — no server, no shared account, no copy-pasting feedback back and forth. Everything lives in one JSON file per repo checkout under `~/.cache/rv/`, guarded by a file lock so the TUI and an agent's CLI calls can run at the same time.
 
+This entire codebase is AI-written. It's been in daily personal use for a while and works well for that, but it comes with no guarantees — use it accordingly, and expect to read the code (or file an issue) if something breaks for your setup.
+
 ## Install
 
 With [Nix](https://nixos.org) (flakes enabled):

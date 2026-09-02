@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
-	"charm.land/lipgloss/v2"
 )
 
 // baseSyntaxStyle is the chroma style whose per-token-type colors get

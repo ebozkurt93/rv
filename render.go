@@ -5,9 +5,9 @@ import (
 	"image/color"
 	"strings"
 
-	"github.com/alecthomas/chroma/v2"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 

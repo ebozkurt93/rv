@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/chroma/v2"
 	tea "charm.land/bubbletea/v2"
+	"github.com/alecthomas/chroma/v2"
 )
 
 type mode int
