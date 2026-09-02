@@ -1238,16 +1238,16 @@ func renderComment(c Comment, stale bool) string {
 	if stale {
 		author += " [line changed]"
 	}
-	text := commentBodyLines("  │● "+author+": ", "  │  ", c.Body)
+	style := styleComment
 	if c.Resolved {
 		// No "(resolved)" text suffix here — this is only reached once a
 		// resolved thread has been deliberately expanded (see
 		// renderCollapsedComment, which already says "resolved" on the
 		// summary line you expanded from), and the muted color still
 		// contrasts clearly against the active (yellow) styleComment.
-		return styleResolved.Render(text)
+		style = styleResolved
 	}
-	return styleComment.Render(text)
+	return commentBodyLines(style, "  │● "+author+": ", "  │  ", c.Body)
 }
 
 // renderCollapsedComment is renderComment's collapsed form, shown instead
@@ -1314,25 +1314,37 @@ func renderReply(r Reply, threadResolved bool, last bool) string {
 	// comment's own lines (both at index 2), so the whole comment+replies
 	// block reads as one continuous connected line down the left edge.
 	icon := "  " + branch + " "
-	text := commentBodyLines(icon+r.Author+": ", "  │  ", r.Body)
+	style := styleComment
 	if threadResolved {
 		// styleResolved rather than styleMuted directly — same color today,
 		// but keeps this call site saying WHY it's muted (resolved, not
 		// some other reason) rather than a coincidental shared value.
-		return styleResolved.Render(text)
+		style = styleResolved
 	}
-	return styleComment.Render(text)
+	return commentBodyLines(style, icon+r.Author+": ", "  │  ", r.Body)
 }
 
 // commentBodyLines joins body's lines with firstPrefix on the first and
-// contPrefix (aligned under it) on every continuation line.
-func commentBodyLines(firstPrefix, contPrefix, body string) string {
+// contPrefix (aligned under it) on every continuation line, styling each
+// physical line independently (its own Style.Render() call) rather than
+// joining plain lines and styling the whole multi-line block in one call
+// — lipgloss's Style.Render() right-pads every line in a
+// single call out to the width of the WIDEST line in that same call, so
+// styling the joined block at once left a short paragraph (or the blank
+// separator between two paragraphs) carrying a huge phantom width: fitLine
+// then truncated it with a spurious "…" even though there was barely any
+// real content, and wrapLineIndented (which measures width from this
+// output) wrapped far more of it than it should have. Verified directly:
+// a 2-paragraph reply's first ("short first") line came back padded to
+// the second paragraph's full width before this fix.
+func commentBodyLines(style lipgloss.Style, firstPrefix, contPrefix, body string) string {
 	lines := strings.Split(body, "\n")
-	text := firstPrefix + lines[0]
-	for _, cont := range lines[1:] {
-		text += "\n" + contPrefix + cont
+	rendered := make([]string, len(lines))
+	rendered[0] = style.Render(firstPrefix + lines[0])
+	for i, cont := range lines[1:] {
+		rendered[i+1] = style.Render(contPrefix + cont)
 	}
-	return text
+	return strings.Join(rendered, "\n")
 }
 
 // firstKey returns keys' primary binding, for compact footer hints — the

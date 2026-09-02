@@ -152,6 +152,34 @@ func commentConnectorColumn(s string) int {
 	return ansi.StringWidth(s[:idx])
 }
 
+// TestCommentBodyLinesDoesNotPadShortLinesToWidestSibling guards a real
+// bug: lipgloss's Style.Render() right-pads every line of multi-line input
+// out to the width of the WIDEST line in that same call. renderComment/
+// renderReply used to join a whole multi-paragraph body into one string
+// and style it with a single Render() call — so a short paragraph, or the
+// blank separator between two paragraphs, came back carrying a phantom
+// width matching the longest paragraph in the body. Left in place, that
+// made fitLine truncate a genuinely short/blank line with a spurious "…"
+// in non-wrap mode, and made wrapLineIndented (which measures width from
+// this output) wrap far more of a line than it actually had content for.
+func TestCommentBodyLinesDoesNotPadShortLinesToWidestSibling(t *testing.T) {
+	body := "short\n\nsecond paragraph is much much much much much much longer than the first one by a lot"
+	out := renderReply(Reply{Author: "agent", Body: body}, false, true)
+	rows := strings.Split(out, "\n")
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (paragraph, blank separator, paragraph), got %d: %v", len(rows), rows)
+	}
+	shortWidth := ansi.StringWidth(rows[0])
+	longWidth := ansi.StringWidth(rows[2])
+	if shortWidth >= longWidth {
+		t.Fatalf("expected the short first line's rendered width (%d) to stay well under the long paragraph's (%d), got padded to match it", shortWidth, longWidth)
+	}
+	blankWidth := ansi.StringWidth(rows[1])
+	if blankWidth >= longWidth {
+		t.Fatalf("expected the blank separator's rendered width (%d) to stay short, got padded toward the long paragraph's (%d)", blankWidth, longWidth)
+	}
+}
+
 // TestCommentContinuationLineKeepsConnectorColumn guards the fix for "so
 // comment indicator is still not aligned... I want something similar to
 // what tree command has" — a multi-line comment's continuation rows (and
