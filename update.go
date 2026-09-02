@@ -22,6 +22,23 @@ func pollSessionCmd() tea.Cmd {
 	return tea.Tick(sessionPollInterval, func(time.Time) tea.Msg { return sessionPollMsg{} })
 }
 
+// backgroundPollInterval governs how often rv re-asks the terminal for its
+// background color (see model.Init and the tea.BackgroundColorMsg case
+// below) — most terminals only answer an OSC 11 query, they don't push an
+// update on their own when the user (or the OS, on an automatic
+// light/dark schedule) switches theme while rv is already running, so a
+// single startup query would otherwise leave rv's tints stuck on
+// whatever was true at launch until the next restart. Slower than
+// sessionPollInterval since a theme flip is a rare, not latency-sensitive
+// event — this only needs to catch up eventually, not within a second.
+const backgroundPollInterval = 5 * time.Second
+
+type backgroundPollMsg struct{}
+
+func pollBackgroundColorCmd() tea.Cmd {
+	return tea.Tick(backgroundPollInterval, func(time.Time) tea.Msg { return backgroundPollMsg{} })
+}
+
 // deleteWordFromEnd trims s the way alt+backspace/ctrl+w does in a shell or
 // editor: drop any trailing whitespace (including a trailing newline, since
 // comments can be multi-line via CommentNewline), then drop the run of
@@ -46,6 +63,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPollMsg:
 		m.refreshSessionIfChanged()
 		return m, pollSessionCmd()
+	case backgroundPollMsg:
+		return m, tea.Batch(pollBackgroundColorCmd(), func() tea.Msg { return tea.RequestBackgroundColor() })
 	case tea.BackgroundColorMsg:
 		setBackgroundIsDark(msg.IsDark())
 		return m, nil

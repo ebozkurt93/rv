@@ -3,7 +3,55 @@ package main
 import (
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
+
+// TestInitStartsBackgroundColorPolling guards the fix for a real bug:
+// rv only asked the terminal for its background color once at startup, so
+// switching the terminal's theme (or an OS-level light/dark schedule)
+// while rv was already running left its added/removed tints stuck on
+// whatever was true at launch until the next restart — most terminals
+// only answer an OSC 11 query, they don't push updates on their own. Init
+// must also kick off the recurring poll (see pollBackgroundColorCmd), not
+// just the one-shot initial request.
+func TestInitStartsBackgroundColorPolling(t *testing.T) {
+	withTempHome(t)
+	m := newModel("/repo", nil, Session{}, nil)
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatalf("expected a non-nil Init command")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected Init to batch its startup commands, got %T", cmd())
+	}
+	if len(batch) != 3 {
+		t.Fatalf("expected 3 batched startup commands (session poll, background poll, initial background request), got %d", len(batch))
+	}
+}
+
+// TestBackgroundPollMsgReschedulesItself guards the recurring half of the
+// fix: handling backgroundPollMsg must both re-request the background
+// color AND reschedule the next poll tick, or polling would silently stop
+// after the first one.
+func TestBackgroundPollMsgReschedulesItself(t *testing.T) {
+	withTempHome(t)
+	m := newModel("/repo", nil, Session{}, nil)
+
+	_, cmd := m.Update(backgroundPollMsg{})
+	if cmd == nil {
+		t.Fatalf("expected a non-nil command from handling backgroundPollMsg")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("expected a batch of (reschedule, request), got %T", cmd())
+	}
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 batched commands (reschedule + request), got %d", len(batch))
+	}
+}
 
 func TestDeleteWordFromEnd(t *testing.T) {
 	cases := []struct {
