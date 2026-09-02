@@ -9,10 +9,26 @@ import "fmt"
 // range syntax (a..b / a...b) for a diff-like command. #compdef makes this
 // file autoload for the "rv" command the moment it's found in $fpath — no
 // eval/source line needed in .zshrc.
+//
+// service=git is load-bearing, not decoration: zsh's own _git dispatcher
+// only handles top-level "git <cmd>" parsing when $service == git;
+// otherwise (its default here, since zsh sets $service to the compdef'd
+// command — "rv") it falls through to `_call_function ret _$service`,
+// which is just _rv again — infinite mutual recursion between _rv and
+// _git ("maximum nested function level reached"), reproduced and
+// confirmed against the actual _git source before this fix.
+//
+// Everything is also `local` so a plugin that re-triggers completion on
+// every keystroke (autosuggest-style, not just on Tab) can't have one
+// invocation's mutated words/CURRENT/service leak into the next one's —
+// each call starts from the real, unmodified outer context.
 const zshCompletion = `#compdef rv
 
-words=(git diff ${words[2,-1]})
-(( CURRENT++ ))
+local service=git
+local -a args
+args=(${words[2,-1]})
+local -a words=(git diff $args)
+local CURRENT=$(( CURRENT + 1 ))
 _git
 `
 

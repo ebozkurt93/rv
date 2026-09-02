@@ -24,6 +24,27 @@ func TestRunCompletionZshDelegatesToGit(t *testing.T) {
 	}
 }
 
+// TestRunCompletionZshSetsServiceToAvoidInfiniteRecursion guards a real,
+// reproduced bug: zsh's own _git dispatcher only handles "git <cmd>"
+// parsing when $service == git; since zsh sets $service to the compdef'd
+// command name ("rv") by default, calling _git without first setting
+// service=git makes _git fall through to `_call_function ret _$service` —
+// which is just _rv again, causing infinite mutual recursion between _rv
+// and _git ("maximum nested function level reached").
+func TestRunCompletionZshSetsServiceToAvoidInfiniteRecursion(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := runCompletion([]string{"zsh"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "service=git") {
+		t.Fatalf("expected service to be explicitly set to git before delegating, got %q", out)
+	}
+	if !strings.Contains(out, "local") {
+		t.Fatalf("expected words/CURRENT/service to be scoped local so repeated invocations (e.g. an autosuggest-style plugin firing on every keystroke) can't leak mutated state into each other, got %q", out)
+	}
+}
+
 func TestRunCompletionBashDelegatesToGit(t *testing.T) {
 	out := captureStdout(t, func() {
 		if err := runCompletion([]string{"bash"}); err != nil {
