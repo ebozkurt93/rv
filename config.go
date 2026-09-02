@@ -122,6 +122,7 @@ func keymapFields(km *Keymap) map[string]*[]string {
 		"confirm":              &km.Confirm,
 		"cancel":               &km.Cancel,
 		"backspace":            &km.Backspace,
+		"delete_word":          &km.DeleteWord,
 		"comment_newline":      &km.CommentNewline,
 		"comment_editor":       &km.CommentEditor,
 		"toggle_comment_scope": &km.ToggleCommentScope,

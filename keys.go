@@ -36,6 +36,7 @@ type Keymap struct {
 	Confirm            []string
 	Cancel             []string
 	Backspace          []string
+	DeleteWord         []string // delete the word behind the cursor while composing text, like most editors/shells
 	CommentNewline     []string // insert a newline while composing a comment, instead of submitting
 	CommentEditor      []string // edit the in-progress comment body in $EDITOR
 	ToggleCommentScope []string // n/N include resolved comments too, instead of skipping them
@@ -76,6 +77,7 @@ func defaultKeymap() Keymap {
 		Confirm:            []string{"enter"},
 		Cancel:             []string{"esc"},
 		Backspace:          []string{"backspace"},
+		DeleteWord:         []string{"alt+backspace", "ctrl+w"},
 		CommentNewline:     []string{"alt+enter"},
 		CommentEditor:      []string{"alt+e"},
 		ToggleCommentScope: []string{"C"},

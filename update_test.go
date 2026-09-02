@@ -5,6 +5,38 @@ import (
 	"time"
 )
 
+func TestDeleteWordFromEnd(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"hello world", "hello "},
+		{"hello world  ", "hello "},
+		{"hello", ""},
+		{"", ""},
+		{"   ", ""},
+		{"fix the bug\n", "fix the "},
+		{"a", ""},
+	}
+	for _, c := range cases {
+		if got := deleteWordFromEnd(c.in); got != c.want {
+			t.Errorf("deleteWordFromEnd(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestDeleteWordFromEndRepeatedPressesClearTheLine guards the actual UX:
+// pressing it repeatedly should walk all the way back to empty, one word at
+// a time, the way it does in a shell or editor.
+func TestDeleteWordFromEndRepeatedPressesClearTheLine(t *testing.T) {
+	s := "fix the flaky test"
+	for i := 0; i < 10 && s != ""; i++ {
+		s = deleteWordFromEnd(s)
+	}
+	if s != "" {
+		t.Fatalf("expected repeated word-deletes to empty the string, got %q", s)
+	}
+}
+
 func TestRefreshSessionIfChangedPicksUpExternalWrite(t *testing.T) {
 	withTempHome(t)
 	repo := "/repo/one"

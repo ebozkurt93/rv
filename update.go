@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -19,6 +20,22 @@ type sessionPollMsg struct{}
 
 func pollSessionCmd() tea.Cmd {
 	return tea.Tick(sessionPollInterval, func(time.Time) tea.Msg { return sessionPollMsg{} })
+}
+
+// deleteWordFromEnd trims s the way alt+backspace/ctrl+w does in a shell or
+// editor: drop any trailing whitespace (including a trailing newline, since
+// comments can be multi-line via CommentNewline), then drop the run of
+// non-whitespace right behind it — one "word" per press, not just one rune.
+func deleteWordFromEnd(s string) string {
+	r := []rune(s)
+	i := len(r)
+	for i > 0 && unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(r[i-1]) {
+		i--
+	}
+	return string(r[:i])
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -130,6 +147,8 @@ func (m model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fileFilter = m.input
 		m.snapToVisibleFile()
 		m.mode = modeNormal
+	case keyMatches(msg, k.DeleteWord):
+		m.input = deleteWordFromEnd(m.input)
 	case keyMatches(msg, k.Backspace):
 		if len(m.input) > 0 {
 			r := []rune(m.input)
@@ -483,6 +502,8 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input += "\n"
 	case keyMatches(msg, k.CommentEditor):
 		return m, openCommentInEditorCmd(m.input)
+	case keyMatches(msg, k.DeleteWord):
+		m.input = deleteWordFromEnd(m.input)
 	case keyMatches(msg, k.Backspace):
 		if len(m.input) > 0 {
 			r := []rune(m.input)

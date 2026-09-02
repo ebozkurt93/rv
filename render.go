@@ -882,6 +882,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.AddComment, desc: "add a comment on the line under the cursor"},
 		{keys: k.CommentNewline, desc: "while composing: insert a newline instead of submitting"},
 		{keys: k.CommentEditor, desc: "while composing: edit the comment body in $EDITOR"},
+		{keys: k.DeleteWord, desc: "while composing: delete the word behind the cursor"},
 		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
 		{keys: k.ToggleReviewed, desc: "mark/unmark the current file reviewed (auto-clears if it changes)"},
