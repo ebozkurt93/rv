@@ -1064,7 +1064,15 @@ func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, curs
 	// Go source lines). l.Content itself is left untouched — this only
 	// affects what's displayed, not comment anchoring/hashing/export.
 	visibleContent := strings.ReplaceAll(l.Content, "\t", "    ")
-	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, visibleContent)
+	// The cursor tint already overrides added/removed coloring entirely
+	// (see fmtr/bg above), so intraline highlighting is suppressed there
+	// too rather than fighting for attention with a third tint on the same
+	// row.
+	mask := l.Highlight
+	if cursor {
+		mask = nil
+	}
+	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, visibleContent, expandMaskForTabs(l.Content, mask))
 	if !showNumbers {
 		return content
 	}

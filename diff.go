@@ -171,6 +171,12 @@ type Line struct {
 	Content string
 	OldLine *int
 	NewLine *int
+	// Highlight marks which runes of Content are part of an intraline
+	// (word-level) diff against this line's paired line on the other side
+	// of a modification — nil unless this line was paired by
+	// applyIntralineHighlights, in which case it's the same rune-length as
+	// Content.
+	Highlight []bool
 }
 
 // Hunk is a contiguous block of changed (and surrounding context) lines.
@@ -250,7 +256,9 @@ func ParseDiff(raw string) ([]FileDiff, error) {
 		}
 
 		for _, h := range f.Hunks {
-			fd.Hunks = append(fd.Hunks, convertHunk(h))
+			hunk := convertHunk(h)
+			applyIntralineHighlights(&hunk)
+			fd.Hunks = append(fd.Hunks, hunk)
 		}
 		files = append(files, fd)
 	}

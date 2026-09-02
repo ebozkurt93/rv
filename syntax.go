@@ -39,11 +39,18 @@ const baseSyntaxStyle = "monokai"
 // plain context lines.
 type tintSet struct {
 	added, removed, cursor string
+	// addedStrong/removedStrong are a more saturated wash than
+	// added/removed, layered on top of it for the runes an intraline diff
+	// marks as actually changed within a modified line — a stronger tint
+	// on top of a tint, keyed word-for-word, rather than a different color
+	// (matching Hunk/GitHub's intraline highlighting, which shades the
+	// same hue harder rather than switching palettes).
+	addedStrong, removedStrong string
 }
 
 var (
-	darkTints  = tintSet{added: "#1f3d2b", removed: "#3d1f24", cursor: "#333333"}
-	lightTints = tintSet{added: "#d9f0d9", removed: "#f5d9d9", cursor: "#e0e0e0"}
+	darkTints  = tintSet{added: "#1f3d2b", removed: "#3d1f24", cursor: "#333333", addedStrong: "#2d6b45", removedStrong: "#6b2d38"}
+	lightTints = tintSet{added: "#d9f0d9", removed: "#f5d9d9", cursor: "#e0e0e0", addedStrong: "#a8dfa8", removedStrong: "#e8a8a8"}
 )
 
 // detectDarkBackground guesses whether the terminal has a dark or light
@@ -94,9 +101,9 @@ var (
 func init() {
 	syntaxContextStyle = styles.Get(baseSyntaxStyle)
 	tints := activeTints()
-	syntaxAddedFmt = newTintedFormatter(tints.added)
-	syntaxRemovedFmt = newTintedFormatter(tints.removed)
-	syntaxCursorFmt = newTintedFormatter(tints.cursor)
+	syntaxAddedFmt = newTintedFormatter(tints.added, tints.addedStrong)
+	syntaxRemovedFmt = newTintedFormatter(tints.removed, tints.removedStrong)
+	syntaxCursorFmt = newTintedFormatter(tints.cursor, tints.cursor)
 	bgAdded = lipgloss.Color(tints.added)
 	bgRemoved = lipgloss.Color(tints.removed)
 	bgCursor = lipgloss.Color(tints.cursor)
@@ -147,15 +154,24 @@ func pickLexer(path string) chroma.Lexer {
 // highlightContent tokenizes content with lexer and formats it through fmt
 // (plain formatters.TTY16 for context lines, or a tintedFormatter for
 // added/removed/cursor lines — see renderLine), returning ANSI-escaped
-// text. Falls back to plain content on any error (a lexer panic/failure
-// shouldn't take the whole diff pane down with it).
-func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string) string {
+// text. mask, when non-nil and fmtr is a *tintedFormatter, layers the
+// formatter's strong tint over the runes it marks (see
+// applyIntralineHighlights) — otherwise ignored. Falls back to plain
+// content on any error (a lexer panic/failure shouldn't take the whole
+// diff pane down with it).
+func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string, mask []bool) string {
 	iterator, err := lexer.Tokenise(nil, content)
 	if err != nil {
 		return content
 	}
 	var buf strings.Builder
-	if err := fmtr.Format(&buf, syntaxContextStyle, iterator); err != nil {
+	var ferr error
+	if tf, ok := fmtr.(*tintedFormatter); ok && mask != nil {
+		ferr = tf.formatMasked(&buf, syntaxContextStyle, iterator, mask)
+	} else {
+		ferr = fmtr.Format(&buf, syntaxContextStyle, iterator)
+	}
+	if ferr != nil {
 		return content
 	}
 	// Some lexers' comment rules match through end-of-line, so tokenising a
@@ -244,25 +260,38 @@ const minTintedContrast = 2.2
 // chroma resets (\033[0m) after every token, so an outer wrap would get
 // canceled by the first token's reset.
 type tintedFormatter struct {
-	bg       chroma.Colour
-	bgEscape string
-	fallback chroma.Colour
+	bg             chroma.Colour
+	bgEscape       string
+	strongBgEscape string
+	fallback       chroma.Colour
 }
 
-func newTintedFormatter(bgHex string) *tintedFormatter {
+func newTintedFormatter(bgHex, strongBgHex string) *tintedFormatter {
 	bg := chroma.MustParseColour(bgHex)
+	strongBg := chroma.MustParseColour(strongBgHex)
 	fallback := chroma.MustParseColour("#ffffff")
 	if relativeLuminance(bg) > 0.5 {
 		fallback = chroma.MustParseColour("#000000")
 	}
 	return &tintedFormatter{
-		bg:       bg,
-		bgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue()),
-		fallback: fallback,
+		bg:             bg,
+		bgEscape:       fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue()),
+		strongBgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", strongBg.Red(), strongBg.Green(), strongBg.Blue()),
+		fallback:       fallback,
 	}
 }
 
 func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iterator) error {
+	return f.formatMasked(w, style, it, nil)
+}
+
+// formatMasked is Format plus intraline highlighting: when mask marks a
+// token's runes (indexed by rune position within the overall token stream)
+// as changed, that run of the token gets strongBgEscape instead of
+// bgEscape, splitting the token's own write into sub-runs as needed. A nil
+// mask (the Format path) always takes the single-write fast path.
+func (f *tintedFormatter) formatMasked(w io.Writer, style *chroma.Style, it chroma.Iterator, mask []bool) error {
+	pos := 0
 	for token := it(); token != chroma.EOF; token = it() {
 		entry := style.Get(token.Type)
 		formatting := ""
@@ -282,10 +311,33 @@ func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Ite
 			}
 			formatting += ansi16Or24(fg)
 		}
-		formatting += f.bgEscape
-		io.WriteString(w, formatting)
-		io.WriteString(w, token.Value)
-		io.WriteString(w, "\033[0m")
+
+		runes := []rune(token.Value)
+		if mask == nil {
+			io.WriteString(w, formatting)
+			io.WriteString(w, f.bgEscape)
+			io.WriteString(w, token.Value)
+			io.WriteString(w, "\033[0m")
+			pos += len(runes)
+			continue
+		}
+		for start := 0; start < len(runes); {
+			hl := pos+start < len(mask) && mask[pos+start]
+			end := start + 1
+			for end < len(runes) && (pos+end < len(mask) && mask[pos+end]) == hl {
+				end++
+			}
+			io.WriteString(w, formatting)
+			if hl {
+				io.WriteString(w, f.strongBgEscape)
+			} else {
+				io.WriteString(w, f.bgEscape)
+			}
+			io.WriteString(w, string(runes[start:end]))
+			io.WriteString(w, "\033[0m")
+			start = end
+		}
+		pos += len(runes)
 	}
 	return nil
 }

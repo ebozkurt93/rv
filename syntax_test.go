@@ -10,7 +10,7 @@ import (
 
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxContextFmt, "func main() {}")
+	out := highlightContent(lexer, syntaxContextFmt, "func main() {}", nil)
 	if out == "func main() {}" {
 		t.Fatalf("expected ANSI-highlighted output, got plain text back: %q", out)
 	}
@@ -18,7 +18,7 @@ func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 
 func TestHighlightContentFallsBackOnFallbackLexer(t *testing.T) {
 	lexer := pickLexer("no-such-extension.zzz")
-	out := highlightContent(lexer, syntaxContextFmt, "plain text")
+	out := highlightContent(lexer, syntaxContextFmt, "plain text", nil)
 	if !strings.Contains(out, "plain text") {
 		t.Fatalf("expected fallback lexer to still round-trip the content, got %q", out)
 	}
@@ -26,7 +26,7 @@ func TestHighlightContentFallsBackOnFallbackLexer(t *testing.T) {
 
 func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxAddedFmt, "func main() {}")
+	out := highlightContent(lexer, syntaxAddedFmt, "func main() {}", nil)
 	if !strings.Contains(out, "\033[48;2;") {
 		t.Fatalf("expected a truecolor background escape in every token, got %q", out)
 	}
@@ -37,9 +37,9 @@ func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 // tint itself, which without a fallback renders as text with virtually no
 // contrast against its own line's background.
 func TestTintedFormatterFallsBackWhenTokenColorLacksContrast(t *testing.T) {
-	f := newTintedFormatter("#1f3d2b") // same hue family as monokai's comment color
+	f := newTintedFormatter("#1f3d2b", "#2d6b45") // same hue family as monokai's comment color
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, f, "// a comment")
+	out := highlightContent(lexer, f, "// a comment", nil)
 	iterator, err := lexer.Tokenise(nil, "// a comment")
 	if err != nil {
 		t.Fatalf("tokenise: %v", err)
