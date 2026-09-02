@@ -41,9 +41,18 @@ var (
 	// maxSidebarWidth/minSidebarWidth bound (model).sidebarWidth() — it
 	// shrinks to fit the longest file path when that's narrower than the
 	// max, rather than always claiming the full width regardless of
-	// content.
+	// content. maxSidebarWidth is only the floor for that cap — see
+	// sidebarWidthFraction below for how it grows on a wide terminal.
 	maxSidebarWidth = 44
 	minSidebarWidth = 24
+
+	// sidebarWidthFraction lets the sidebar's cap grow past maxSidebarWidth
+	// on a wide terminal, up to this fraction of the total width — so long
+	// file paths don't truncate just because maxSidebarWidth was sized for
+	// a typical terminal. Still bounded by how long the paths actually are
+	// (see sidebarWidth): a wide terminal with only short paths doesn't
+	// force a wide sidebar either.
+	sidebarWidthFraction = 0.3
 
 	// borderOverhead is how much a bordered+padded panel adds beyond its
 	// content width/height (1 col/row of border plus 1 col of horizontal
@@ -109,8 +118,13 @@ func (m model) sidebarWidth() int {
 	}
 	const rowOverhead = 5 // prefix(2) + marker(1) + check(1) + space(1)
 	want := longest + rowOverhead + borderOverheadW
-	if want > maxSidebarWidth {
-		want = maxSidebarWidth
+
+	widthCap := maxSidebarWidth
+	if scaled := int(float64(m.width) * sidebarWidthFraction); scaled > widthCap {
+		widthCap = scaled
+	}
+	if want > widthCap {
+		want = widthCap
 	}
 	if want < minSidebarWidth {
 		want = minSidebarWidth
@@ -320,7 +334,8 @@ func (m model) renderSidebar() string {
 	for pos, fi := range vis {
 		fr := m.files[fi]
 		reviewed := isFileReviewed(m.session, fr.file)
-		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, reviewed, unresolvedCount(m.session.Comments, fr.file.Path), innerW)
+		unresolved, total := commentCounts(m.session.Comments, fr.file.Path)
+		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, reviewed, unresolved, total, innerW)
 		if fi == m.fileIndex {
 			cursorPos = pos
 		}
@@ -342,7 +357,7 @@ func (m model) renderSidebar() string {
 // renderSidebarRow renders a single sidebar line, truncated (never wrapped)
 // to fit width — the file path is truncated from the left so the filename
 // itself, the most useful part, stays visible.
-func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, width int) string {
+func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved, total int, width int) string {
 	prefix := "  "
 	if selected {
 		prefix = "▸ "
@@ -353,9 +368,12 @@ func renderSidebarRow(fr fileRows, selected, reviewed bool, unresolved int, widt
 		check = styleAdded.Render("✓")
 	}
 
+	// "unresolved/total" rather than just unresolved — a fully-resolved
+	// file (0 unresolved but total > 0) still shows its comment history
+	// instead of looking like it never had any.
 	unresolvedText := ""
-	if unresolved > 0 {
-		unresolvedText = fmt.Sprintf(" (%d)", unresolved)
+	if total > 0 {
+		unresolvedText = fmt.Sprintf(" (%d/%d)", unresolved, total)
 	}
 
 	avail := width - lipgloss.Width(prefix) - lipgloss.Width(marker) - lipgloss.Width(check) - 1 - lipgloss.Width(unresolvedText)
@@ -417,14 +435,21 @@ func statusMarker(s FileStatus, untracked bool) string {
 	}
 }
 
-func unresolvedCount(comments []Comment, file string) int {
-	n := 0
+// commentCounts returns file's unresolved and total comment counts, so the
+// sidebar badge can show both (see renderSidebarRow) instead of just
+// unresolved — resolved is just total-unresolved, but total on its own
+// isn't derivable from the unresolved count alone.
+func commentCounts(comments []Comment, file string) (unresolved, total int) {
 	for _, c := range comments {
-		if c.File == file && !c.Resolved {
-			n++
+		if c.File != file {
+			continue
+		}
+		total++
+		if !c.Resolved {
+			unresolved++
 		}
 	}
-	return n
+	return unresolved, total
 }
 
 func (m model) renderDiff() string {

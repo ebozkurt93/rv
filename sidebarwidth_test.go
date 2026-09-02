@@ -36,6 +36,29 @@ func TestSidebarWidthTracksLongestPathAmongAllFiles(t *testing.T) {
 	}
 }
 
+// TestSidebarWidthGrowsPastCapOnWideTerminal guards the fix for a long file
+// path truncating even when the terminal has plenty of room to show it —
+// maxSidebarWidth was sized for a typical terminal, but on a wide one the
+// cap should grow (up to sidebarWidthFraction of the total width) instead
+// of staying stuck at that static value.
+func TestSidebarWidthGrowsPastCapOnWideTerminal(t *testing.T) {
+	m := newModel("/repo", []FileDiff{
+		fileDiffWithLines("internal/some/very/deeply/nested/package/quite/a/lot/longer/file.go", 3),
+	}, Session{}, nil)
+
+	m.width = 80
+	narrow := m.sidebarWidth()
+	if narrow != maxSidebarWidth {
+		t.Fatalf("expected a normal-width terminal to still hit the static cap (%d), got %d", maxSidebarWidth, narrow)
+	}
+
+	m.width = 300
+	wide := m.sidebarWidth()
+	if wide <= maxSidebarWidth {
+		t.Fatalf("expected a wide terminal to grow the sidebar past the static cap (%d), got %d", maxSidebarWidth, wide)
+	}
+}
+
 func TestSidebarWidthIgnoresActiveFilterWhenSizing(t *testing.T) {
 	m := newModel("/repo", []FileDiff{
 		fileDiffWithLines("a.go", 3),
