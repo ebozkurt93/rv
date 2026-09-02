@@ -186,6 +186,60 @@ func TestCommentContinuationLineKeepsConnectorColumn(t *testing.T) {
 	}
 }
 
+// TestWrappedCommentReplyStaysAlignedUnderConnector is
+// TestCommentContinuationLineKeepsConnectorColumn's counterpart for a
+// SINGLE logical line that's too long to fit and has to word-wrap — its
+// physical continuation rows must also stay aligned under the connector
+// column instead of falling back to column 0 (the actual bug reported:
+// wrapping a long reply visibly detached its overflow text from the
+// thread it belonged to).
+func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	longBody := "This is a deliberately very long single reply line meant to force word-wrapping across several physical rows once it exceeds the diff pane's available width."
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "short",
+			Replies: []Reply{{ID: "r1", Body: longBody, Author: "agent"}}},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.wrapLines = true
+
+	lines, _, _, mainLine := m.buildDiffLinesDetailed(40)
+	var replyRows []string
+	inReply := false
+	for i, l := range lines {
+		stripped := ansi.Strip(l)
+		if strings.Contains(stripped, "agent:") {
+			inReply = true
+		} else if mainLine[i] || strings.TrimSpace(stripped) == "" {
+			inReply = false
+		}
+		if inReply {
+			replyRows = append(replyRows, stripped)
+		}
+	}
+	if len(replyRows) < 2 {
+		t.Fatalf("expected the long reply to wrap into multiple rows at width 40, got %d: %v", len(replyRows), replyRows)
+	}
+	want := commentConnectorColumn(replyRows[0])
+	if want < 0 {
+		t.Fatalf("expected the reply's first row to contain a connector: %q", replyRows[0])
+	}
+	for _, row := range replyRows[1:] {
+		// Wrapped continuations don't repeat the "│"/"●" glyph itself (see
+		// wrapLineIndented) — only the indentation column matters here:
+		// the row's first non-space character should start no earlier
+		// than the connector column.
+		firstNonSpace := len(row) - len(strings.TrimLeft(row, " "))
+		if firstNonSpace < want {
+			t.Fatalf("expected wrapped continuation %q to stay indented at/after column %d, got content starting at %d", row, want, firstNonSpace)
+		}
+	}
+}
+
 // TestReplyBranchesLikeTree guards the fix for the "└" appearing on every
 // reply regardless of position — only the last reply should cap the thread
 // with "└─"; every earlier one gets "├─" so the connector keeps running to
