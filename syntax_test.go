@@ -32,6 +32,25 @@ func TestSetBackgroundIsDarkSwitchesTints(t *testing.T) {
 	}
 }
 
+// TestPlainFormatterNeverEmitsATokenBackground guards a real bug: monokai
+// (like several chroma styles) sets a background on its "Error" token type,
+// meant to flag a genuine lexer error. rv tokenizes one diff line at a time
+// with no carried-over lexer state, so a bare block-comment delimiter like
+// "*/" or a "*" continuation line reads as a syntax error in isolation and
+// gets tokenized as Error — without this guard, that put a stray near-black
+// box around otherwise-valid comment lines. Context lines should never show
+// anything but the terminal's own background.
+func TestPlainFormatterNeverEmitsATokenBackground(t *testing.T) {
+	lexer := pickLexer("a.ts")
+	bgEscape := regexp.MustCompile(`\x1b\[(48;|4[0-7]m|10[0-7]m)`)
+	for _, line := range []string{" */", " /**", " *"} {
+		out := highlightContent(lexer, syntaxContextFmt, line, nil)
+		if bgEscape.MatchString(out) {
+			t.Fatalf("expected no background escape for context line %q, got %q", line, out)
+		}
+	}
+}
+
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 	lexer := pickLexer("a.go")
 	out := highlightContent(lexer, syntaxContextFmt, "func main() {}", nil)

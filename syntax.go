@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
-	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
@@ -17,11 +16,11 @@ import (
 )
 
 // baseSyntaxStyle is the chroma style whose per-token-type colors get
-// reduced to the nearest of the basic 16 ANSI colors by formatters.TTY16 —
-// so which base style we pick mostly just decides how tokens (keyword vs
-// string vs comment...) sort into different ANSI slots; the *actual*
-// rendered hue is always whatever the user's terminal theme has configured
-// for that slot, same as the rest of rv's coloring.
+// reduced to the nearest of the basic 16 ANSI colors by plainFormatter/
+// tintedFormatter — so which base style we pick mostly just decides how
+// tokens (keyword vs string vs comment...) sort into different ANSI slots;
+// the *actual* rendered hue is always whatever the user's terminal theme
+// has configured for that slot, same as the rest of rv's coloring.
 const baseSyntaxStyle = "monokai"
 
 // Added/removed/cursor tints are a subtle wash rather than a solid color —
@@ -80,7 +79,7 @@ func detectDarkBackground() bool {
 
 var (
 	syntaxContextStyle *chroma.Style
-	syntaxContextFmt   chroma.Formatter = formatters.TTY16
+	syntaxContextFmt   chroma.Formatter = plainFormatter{}
 	syntaxAddedFmt     chroma.Formatter
 	syntaxRemovedFmt   chroma.Formatter
 	syntaxCursorFmt    chroma.Formatter
@@ -162,7 +161,7 @@ func pickLexer(path string) chroma.Lexer {
 }
 
 // highlightContent tokenizes content with lexer and formats it through fmt
-// (plain formatters.TTY16 for context lines, or a tintedFormatter for
+// (plainFormatter for context lines, or a tintedFormatter for
 // added/removed/cursor lines — see renderLine), returning ANSI-escaped
 // text. mask, when non-nil and fmtr is a *tintedFormatter, layers the
 // formatter's strong tint over the runes it marks (see
@@ -259,6 +258,45 @@ func contrastRatio(a, b chroma.Colour) float64 {
 // keyword on a dark green "added" tint), which without this would render
 // as text with virtually no contrast against its own line.
 const minTintedContrast = 2.2
+
+// plainFormatter renders each token's foreground only — no background at
+// all, regardless of what the chroma style says — reducing colors to the
+// nearest of the basic 16 ANSI colors the same way tintedFormatter does.
+// This deliberately diverges from chroma's own formatters.TTY16 (which
+// plainFormatter otherwise mirrors): TTY16 also honors a style entry's own
+// Background, and monokai sets one on its "Error" token type (a near-black
+// box) — meant to flag a genuine lexer error, but it fires here on
+// perfectly valid code too, because rv tokenizes one diff line at a time
+// with no carried-over lexer state. A line like a bare "*/" or a "*"
+// continuation line of a block comment reads as a syntax error in
+// isolation and got tokenized as Error, putting a stray black box around
+// it. Since context lines should never show anything but the terminal's
+// own background anyway, the simplest fix is to never emit a token
+// background here at all.
+type plainFormatter struct{}
+
+func (plainFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iterator) error {
+	for token := it(); token != chroma.EOF; token = it() {
+		entry := style.Get(token.Type)
+		formatting := ""
+		if entry.Bold == chroma.Yes {
+			formatting += "\033[1m"
+		}
+		if entry.Underline == chroma.Yes {
+			formatting += "\033[4m"
+		}
+		if entry.Italic == chroma.Yes {
+			formatting += "\033[3m"
+		}
+		if entry.Colour.IsSet() {
+			formatting += ansi16Or24(nearestANSI16(entry.Colour))
+		}
+		io.WriteString(w, formatting)
+		io.WriteString(w, token.Value)
+		io.WriteString(w, "\033[0m")
+	}
+	return nil
+}
 
 // tintedFormatter renders each token's foreground reduced to the nearest of
 // the basic 16 ANSI colors (so it still follows the terminal theme, exactly
