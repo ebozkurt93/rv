@@ -166,7 +166,7 @@ func TestCommentContinuationLineKeepsConnectorColumn(t *testing.T) {
 	c := Comment{Author: "user", Body: "first line\nsecond line",
 		Replies: []Reply{{Author: "agent", Body: "a reply"}, {Author: "user", Body: "another reply"}}}
 
-	rows := strings.Split(renderComment(c), "\n")
+	rows := strings.Split(renderComment(c, false), "\n")
 	for i, r := range c.Replies {
 		last := i == len(c.Replies)-1
 		rows = append(rows, strings.Split(renderReply(r, false, last), "\n")...)

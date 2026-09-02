@@ -498,9 +498,44 @@ func isFileReviewed(session Session, fd FileDiff) bool {
 	return ok && hash == fileDiffHash(fd)
 }
 
+// rowComment pairs a Comment with whether it's anchored via
+// commentAnchorRow's stale (line-number-only) fallback rather than an exact
+// or unique content match — see commentsByRow.
+type rowComment struct {
+	Comment
+	Stale bool
+}
+
 // commentsForCurrentLine returns comments anchored to the cursor's current
-// row (see commentAnchorRow).
+// row (see commentAnchorRow), stale ones included — used where "whatever's
+// shown at the cursor" is the right notion (delete/toggle-resolved act on
+// whatever comment the user is actually looking at). For deciding whether
+// pressing AddComment should edit an existing thread, see
+// commentsForCurrentLineFresh instead — editing a stale comment in place
+// would silently attach new text to a line it no longer describes.
 func (m model) commentsForCurrentLine() []Comment {
+	rows := m.commentsForCurrentLineRow()
+	out := make([]Comment, len(rows))
+	for i, rc := range rows {
+		out[i] = rc.Comment
+	}
+	return out
+}
+
+// commentsForCurrentLineFresh is commentsForCurrentLine minus any comment
+// anchored only via the stale fallback — see rowComment.
+func (m model) commentsForCurrentLineFresh() []Comment {
+	rows := m.commentsForCurrentLineRow()
+	out := make([]Comment, 0, len(rows))
+	for _, rc := range rows {
+		if !rc.Stale {
+			out = append(out, rc.Comment)
+		}
+	}
+	return out
+}
+
+func (m model) commentsForCurrentLineRow() []rowComment {
 	if m.fileIndex < 0 || m.fileIndex >= len(m.files) {
 		return nil
 	}
@@ -514,12 +549,12 @@ func (m model) commentsForCurrentLine() []Comment {
 func (m model) locateComment(c Comment) (fileIdx, rowIdx int, ok bool) {
 	for fi, fr := range m.files {
 		if m.splitView {
-			if idx, anchored := commentAnchorRowSplit(fr, c); anchored {
+			if idx, anchored, _ := commentAnchorRowSplit(fr, c); anchored {
 				return fi, idx, true
 			}
 			continue
 		}
-		if idx, anchored := commentAnchorRow(fr, c); anchored {
+		if idx, anchored, _ := commentAnchorRow(fr, c); anchored {
 			return fi, idx, true
 		}
 	}
@@ -530,20 +565,21 @@ func (m model) locateComment(c Comment) (fileIdx, rowIdx int, ok bool) {
 // row index (see commentAnchorRow), grouped by row — the per-file
 // precomputation buildDiffLinesDetailed and commentsForCurrentLine both use,
 // rather than re-resolving every comment's anchor on every row.
-func (m model) commentsByRow(fr fileRows) map[int][]Comment {
-	byRow := make(map[int][]Comment)
+func (m model) commentsByRow(fr fileRows) map[int][]rowComment {
+	byRow := make(map[int][]rowComment)
 	for _, c := range m.session.Comments {
 		var (
-			idx int
-			ok  bool
+			idx   int
+			ok    bool
+			stale bool
 		)
 		if m.splitView {
-			idx, ok = commentAnchorRowSplit(fr, c)
+			idx, ok, stale = commentAnchorRowSplit(fr, c)
 		} else {
-			idx, ok = commentAnchorRow(fr, c)
+			idx, ok, stale = commentAnchorRow(fr, c)
 		}
 		if ok {
-			byRow[idx] = append(byRow[idx], c)
+			byRow[idx] = append(byRow[idx], rowComment{Comment: c, Stale: stale})
 		}
 	}
 	return byRow
@@ -565,36 +601,42 @@ func lineNumberMatches(line Line, c Comment) bool {
 }
 
 // commentAnchorRow finds which row in fr's rows c should attach to now,
-// tolerating the line having moved since the comment was created (an edit
-// reverted, or unrelated lines shifted above it) instead of either silently
-// losing the comment or — worse — silently reattaching it to a different,
-// unrelated line that happens to land at the same number:
+// tolerating the line having moved or changed since the comment was
+// created (an edit reverted, unrelated lines shifted above it, or — the
+// common case with an agent acting on feedback — the exact line the
+// comment was left on got edited) instead of either silently losing the
+// comment or — worse — silently reattaching it to a different, unrelated
+// line that happens to land at the same number:
 //
 //  1. Its original file + line number, IF the row still there also still
 //     has the exact content the comment recorded at creation time
-//     (c.LineContent) — the common case, nothing moved.
+//     (c.LineContent) — the common case, nothing moved. Not stale.
 //  2. Failing that, wherever in the file a row's content exactly matches
 //     c.LineContent, but ONLY if that's true of exactly one row — an
-//     ambiguous (or absent) match means guessing wrong is worse than not
-//     guessing, so the comment is left anchored nowhere (orphaned; see
-//     (m model).orphanedCommentCount) rather than reattached speculatively.
+//     ambiguous match means guessing wrong is worse than not guessing.
+//     Also not stale: the content match is exact, just at a new position.
+//  3. Failing that too, its original line number, on WHATEVER content is
+//     there now — marked stale (see rowComment) so the UI can flag it as
+//     "this line changed since the comment was left" instead of either
+//     silently reattaching it with no indication, or making it vanish
+//     from view entirely (orphaned; see (m model).orphanedCommentCount).
 //
-// c.LineContent == "" (a comment created before this existed) falls back
-// to pure line-number matching — unchanged from the original behavior,
-// since there's nothing to content-check against.
-func commentAnchorRow(fr fileRows, c Comment) (rowIdx int, ok bool) {
+// c.LineContent == "" (a comment created before this existed) skips
+// straight to pure line-number matching, marked not-stale — unchanged from
+// the original behavior, since there's nothing to content-check against.
+func commentAnchorRow(fr fileRows, c Comment) (rowIdx int, ok, stale bool) {
 	if fr.file.Path != c.File {
-		return 0, false
+		return 0, false, false
 	}
 	for i, row := range fr.rows {
 		if row.kind == rowLine && lineNumberMatches(row.line, c) {
 			if c.LineContent == "" || row.line.Content == c.LineContent {
-				return i, true
+				return i, true, false
 			}
 		}
 	}
 	if c.LineContent == "" {
-		return 0, false
+		return 0, false, false
 	}
 	match, matches := -1, 0
 	for i, row := range fr.rows {
@@ -603,31 +645,36 @@ func commentAnchorRow(fr fileRows, c Comment) (rowIdx int, ok bool) {
 		}
 	}
 	if matches == 1 {
-		return match, true
+		return match, true, false
 	}
-	return 0, false
+	for i, row := range fr.rows {
+		if row.kind == rowLine && lineNumberMatches(row.line, c) {
+			return i, true, true
+		}
+	}
+	return 0, false, false
 }
 
 // commentAnchorRowSplit is commentAnchorRow's split-view counterpart: the
-// same two-pass (exact line-number+content match, then unique-content
-// fallback) logic, but checking both sides of a pairedRow — a comment
-// anchors to whichever side (old or new) it was originally created
-// against, and either side (or, for a genuine modified pair, potentially
-// both) can match.
-func commentAnchorRowSplit(fr fileRows, c Comment) (rowIdx int, ok bool) {
+// same three-pass (exact line-number+content match, unique-content
+// fallback, then stale line-number-only fallback) logic, but checking both
+// sides of a pairedRow — a comment anchors to whichever side (old or new)
+// it was originally created against, and either side (or, for a genuine
+// modified pair, potentially both) can match.
+func commentAnchorRowSplit(fr fileRows, c Comment) (rowIdx int, ok, stale bool) {
 	if fr.file.Path != c.File {
-		return 0, false
+		return 0, false, false
 	}
 	sideMatches := func(l *Line) bool {
 		return l != nil && lineNumberMatches(*l, c) && (c.LineContent == "" || l.Content == c.LineContent)
 	}
 	for i, row := range fr.splitRows {
 		if row.kind == rowLine && (sideMatches(row.left) || sideMatches(row.right)) {
-			return i, true
+			return i, true, false
 		}
 	}
 	if c.LineContent == "" {
-		return 0, false
+		return 0, false, false
 	}
 	contentMatches := func(l *Line) bool { return l != nil && l.Content == c.LineContent }
 	match, matches := -1, 0
@@ -637,18 +684,26 @@ func commentAnchorRowSplit(fr fileRows, c Comment) (rowIdx int, ok bool) {
 		}
 	}
 	if matches == 1 {
-		return match, true
+		return match, true, false
 	}
-	return 0, false
+	sideLineMatches := func(l *Line) bool { return l != nil && lineNumberMatches(*l, c) }
+	for i, row := range fr.splitRows {
+		if row.kind == rowLine && (sideLineMatches(row.left) || sideLineMatches(row.right)) {
+			return i, true, true
+		}
+	}
+	return 0, false, false
 }
 
 // orphanedCommentCount is how many session comments have no row to attach
-// to anywhere in the currently loaded diff (see commentAnchorRow) — shown
-// in the header so a silently-detached comment stays visible instead of
-// just vanishing from the diff pane while still sitting in the session
-// file. Comments with no recorded LineContent (created before re-anchoring
-// existed) are never counted — there's nothing to detect orphaning with,
-// so they fall back to the original pure line-number behavior instead.
+// to anywhere in the currently loaded diff — not even commentAnchorRow's
+// stale line-number fallback (e.g. the file itself shrank past that line,
+// or no longer appears in the diff at all) — shown in the header so a
+// genuinely-detached comment stays visible instead of just vanishing from
+// the diff pane while still sitting in the session file. Comments with no
+// recorded LineContent (created before re-anchoring existed) are never
+// counted — there's nothing to detect orphaning with, so they fall back to
+// the original pure line-number behavior instead.
 func (m model) orphanedCommentCount() int {
 	count := 0
 	for _, c := range m.session.Comments {
@@ -660,7 +715,7 @@ func (m model) orphanedCommentCount() int {
 			if fr.file.Path != c.File {
 				continue
 			}
-			_, anchored = commentAnchorRow(fr, c)
+			_, anchored, _ = commentAnchorRow(fr, c)
 			break
 		}
 		if !anchored {

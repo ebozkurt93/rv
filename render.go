@@ -591,7 +591,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
 				continue
 			}
-			for _, l := range strings.Split(renderComment(c), "\n") {
+			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
 				appendText(l, i, false)
 			}
 			composingReplyHere := m.mode == modeComment && i == m.lineIndex && m.replyingToCommentID == c.ID
@@ -813,7 +813,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
 				continue
 			}
-			for _, l := range strings.Split(renderComment(c), "\n") {
+			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
 				appendText(l, i, false)
 			}
 			// A new reply being composed for this exact comment renders
@@ -1134,7 +1134,14 @@ func lineNumStr(n *int) string {
 // any continuation lines is intentional — the caller (buildDiffLinesDetailed)
 // splits back on "\n" into separate rendered rows, exactly like
 // renderCommentEditor does for a multi-line comment still being typed.
-func renderComment(c Comment) string {
+// stale is true when c is only anchored here via commentAnchorRow's
+// line-number fallback — the line it was originally left on has since
+// changed (most commonly: an agent edited it while acting on the
+// feedback). Rather than silently reattaching with no indication (or
+// vanishing from view entirely as "orphaned"), it renders with an explicit
+// "[line changed]" marker so it's still visible but clearly flagged as no
+// longer describing the code actually shown here.
+func renderComment(c Comment, stale bool) string {
 	// "●" rather than an emoji like "💬": emoji cell-width genuinely varies
 	// by terminal/font (some render 2 cells, some 1), so a computed padding
 	// width meant to align under "author:" would still disagree with
@@ -1150,7 +1157,11 @@ func renderComment(c Comment) string {
 	// same Unicode block "└─" below is drawn from, designed to connect
 	// seamlessly with it — a thin bar from a different block can land at a
 	// different sub-cell position in some fonts and visibly not line up.
-	text := commentBodyLines("  │● "+c.Author+": ", "  │  ", c.Body)
+	author := c.Author
+	if stale {
+		author += " [line changed]"
+	}
+	text := commentBodyLines("  │● "+author+": ", "  │  ", c.Body)
 	if c.Resolved {
 		// No "(resolved)" text suffix — the strikethrough (and its replies'
 		// matching strikethrough, see renderReply) already says this

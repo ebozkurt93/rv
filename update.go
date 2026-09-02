@@ -818,8 +818,15 @@ func (m *model) snapToVisibleFile() {
 // A resolved match is treated the same as an unresolved one: editing/
 // replying un-resolves it (see addCommentUnderCursor) rather than requiring
 // a separate "reopen" step or starting a second, parallel thread.
+//
+// Only considers "fresh" comments (commentsForCurrentLineFresh) — one
+// anchored here only via the stale line-number fallback was left on a line
+// that's since changed, so it's not what the user is looking at right now.
+// Editing it in place would silently attach new text to content it no
+// longer describes; a stale comment stays visible (marked as such) but
+// pressing AddComment on its row starts a brand new thread instead.
 func (m model) commentActionForCurrentLine() (comment Comment, editing bool, editingReplyID string, replying bool) {
-	comments := m.commentsForCurrentLine()
+	comments := m.commentsForCurrentLineFresh()
 	for i := len(comments) - 1; i >= 0; i-- {
 		c := comments[i]
 		if c.Author != "user" {

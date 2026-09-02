@@ -19,7 +19,7 @@ func TestCommentAnchorRowStaysPutWhenContentMatches(t *testing.T) {
 	n := 2
 	c := Comment{File: "a.go", NewLine: &n, LineContent: "func b()"}
 
-	idx, ok := commentAnchorRow(fr, c)
+	idx, ok, _ := commentAnchorRow(fr, c)
 	if !ok || fr.rows[idx].line.Content != "func b()" {
 		t.Fatalf("expected anchor at the matching row, got idx=%d ok=%v", idx, ok)
 	}
@@ -35,7 +35,7 @@ func TestCommentAnchorRowReanchorsWhenLineMoved(t *testing.T) {
 	n := 2 // originally on row for "func b()" before "func new()" was inserted above it
 	c := Comment{File: "a.go", NewLine: &n, LineContent: "func b()"}
 
-	idx, ok := commentAnchorRow(fr, c)
+	idx, ok, _ := commentAnchorRow(fr, c)
 	if !ok || fr.rows[idx].line.Content != "func b()" {
 		t.Fatalf("expected re-anchor to the row with matching content, got idx=%d ok=%v", idx, ok)
 	}
@@ -50,7 +50,7 @@ func TestCommentAnchorRowOrphansOnAmbiguousContent(t *testing.T) {
 	n := 99 // no longer matches any row by number
 	c := Comment{File: "a.go", NewLine: &n, LineContent: "}"}
 
-	if _, ok := commentAnchorRow(fr, c); ok {
+	if _, ok, _ := commentAnchorRow(fr, c); ok {
 		t.Fatalf("expected an ambiguous (2-way) content match to orphan the comment, not guess")
 	}
 }
@@ -63,7 +63,7 @@ func TestCommentAnchorRowOrphansWhenContentGone(t *testing.T) {
 	n := 99
 	c := Comment{File: "a.go", NewLine: &n, LineContent: "func deleted()"}
 
-	if _, ok := commentAnchorRow(fr, c); ok {
+	if _, ok, _ := commentAnchorRow(fr, c); ok {
 		t.Fatalf("expected no match anywhere in the file to orphan the comment")
 	}
 }
@@ -77,9 +77,98 @@ func TestCommentAnchorRowFallsBackToLineNumberWithoutRecordedContent(t *testing.
 	n := 2
 	c := Comment{File: "a.go", NewLine: &n} // LineContent left empty
 
-	idx, ok := commentAnchorRow(fr, c)
+	idx, ok, _ := commentAnchorRow(fr, c)
 	if !ok || fr.rows[idx].line.Content != "func b()" {
 		t.Fatalf("expected legacy pure line-number match, got idx=%d ok=%v", idx, ok)
+	}
+}
+
+// TestCommentAnchorRowFallsBackToStaleLineNumberWhenContentChanged guards
+// the actual bug this fixes: an agent editing the exact line a comment was
+// left on (the common "leave feedback, agent fixes it" flow) changes that
+// line's content, so it no longer matches anywhere in the file — content
+// matching alone would orphan (hide) the comment entirely. It should
+// instead re-anchor to the original line number, on whatever content is
+// there now, flagged stale.
+func TestCommentAnchorRowFallsBackToStaleLineNumberWhenContentChanged(t *testing.T) {
+	fr := flattenFile(fileDiffWithContentLines("a.go", "func a()", "func b()", "func c()"))
+	n := 2 // "func b()" at creation time; since edited to "func b2()"
+	c := Comment{File: "a.go", NewLine: &n, LineContent: "func b()"}
+	fr.rows[2].line.Content = "func b2()" // rows[0] is the hunk header
+
+	idx, ok, stale := commentAnchorRow(fr, c)
+	if !ok || !stale {
+		t.Fatalf("expected a stale fallback anchor, got idx=%d ok=%v stale=%v", idx, ok, stale)
+	}
+	if fr.rows[idx].line.Content != "func b2()" {
+		t.Fatalf("expected the fallback to land on the row at the original line number, got %q", fr.rows[idx].line.Content)
+	}
+}
+
+// TestCommentAnchorRowFreshMatchIsNotStale is the sibling guard: an exact
+// or unique-content match must NOT be flagged stale — only the last-resort
+// line-number-only fallback should be.
+func TestCommentAnchorRowFreshMatchIsNotStale(t *testing.T) {
+	fr := flattenFile(fileDiffWithContentLines("a.go", "func a()", "func b()", "func c()"))
+	n := 2
+	c := Comment{File: "a.go", NewLine: &n, LineContent: "func b()"}
+
+	_, ok, stale := commentAnchorRow(fr, c)
+	if !ok || stale {
+		t.Fatalf("expected a fresh, non-stale match, got ok=%v stale=%v", ok, stale)
+	}
+}
+
+// TestCommentsForCurrentLineFreshExcludesStale guards the fix for adding a
+// new comment on a line whose only existing comment there is stale: the
+// stale one is left on code that no longer exists, so it must not be
+// treated as "the" comment on this row for AddComment's edit-in-place
+// decision (see commentActionForCurrentLine) — that would silently attach
+// new text to a thread about different code.
+func TestCommentsForCurrentLineFreshExcludesStale(t *testing.T) {
+	withTempHome(t)
+	fd := fileDiffWithContentLines("a.go", "func a()", "func b()", "func c()")
+	n := 2
+	m := newModel("/repo", []FileDiff{fd}, Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "func b()", Author: "user", Body: "why?"},
+	}}, nil)
+	m.files[0].rows[2].line.Content = "func b2()" // agent edited the commented line; rows[0] is the hunk header
+	m.lineIndex = 2
+
+	if got := m.commentsForCurrentLine(); len(got) != 1 {
+		t.Fatalf("expected the stale comment to still render at its row, got %d", len(got))
+	}
+	if got := m.commentsForCurrentLineFresh(); len(got) != 0 {
+		t.Fatalf("expected no fresh comments on the now-different line, got %d", len(got))
+	}
+
+	comment, editing, editingReplyID, replying := m.commentActionForCurrentLine()
+	if editing || replying || editingReplyID != "" || comment.ID != "" {
+		t.Fatalf("expected AddComment to start a brand new thread, not edit the stale one: comment=%+v editing=%v replying=%v",
+			comment, editing, replying)
+	}
+}
+
+// TestCommentAnchorRowSplitFallsBackToStaleLineNumber is
+// TestCommentAnchorRowFallsBackToStaleLineNumberWhenContentChanged's
+// split-view counterpart.
+func TestCommentAnchorRowSplitFallsBackToStaleLineNumber(t *testing.T) {
+	fd := fileDiffWithContentLines("a.go", "func a()", "func b()", "func c()")
+	fr := flattenFile(fd)
+	n := 2
+	c := Comment{File: "a.go", NewLine: &n, LineContent: "func b()"}
+	// Context rows' left/right point at the same underlying Line, so
+	// mutating through either pointer changes what both sides see —
+	// exactly what "the line's content changed" means here.
+	for i := range fr.splitRows {
+		if fr.splitRows[i].right != nil && fr.splitRows[i].right.Content == "func b()" {
+			fr.splitRows[i].right.Content = "func b2()"
+		}
+	}
+
+	idx, ok, stale := commentAnchorRowSplit(fr, c)
+	if !ok || !stale {
+		t.Fatalf("expected a stale fallback anchor, got idx=%d ok=%v stale=%v", idx, ok, stale)
 	}
 }
 
