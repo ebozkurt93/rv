@@ -19,7 +19,7 @@
           pname = "rv";
           version = "0.1.0";
           src = ./.;
-          vendorHash = null;
+          vendorHash = "sha256-k1PpleU+h4N0ysTnxG3kwr4JMxFzEmZITukXmh3XW00=";
         };
       in {
         packages = {

@@ -1,4 +1,4 @@
-module rv
+module github.com/ebozkurt93/rv
 
 go 1.25.0
 
