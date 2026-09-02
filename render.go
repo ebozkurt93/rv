@@ -59,6 +59,16 @@ var (
 	// padding on each side).
 	borderOverheadW = 4
 	borderOverheadH = 2
+
+	// headerMargin insets the header/footer rows' text by the same amount
+	// a bordered panel's border+padding do on one side (borderOverheadW/2)
+	// — so header/footer text lines up with the sidebar/diff panels' own
+	// content column instead of sitting flush against the terminal edge
+	// while the panels below it are inset. The horizontal rule between the
+	// title and path lines is deliberately NOT inset — it reads as a
+	// border-like divider (same color as the panel borders), and panel
+	// borders themselves span the full width.
+	headerMargin = borderOverheadW / 2
 )
 
 func (m model) View() tea.View {
@@ -167,12 +177,14 @@ func (m model) renderHeader() string {
 	if width < 1 {
 		width = 80
 	}
-	gap := width - lipgloss.Width(title) - lipgloss.Width(counts) - 1
+	margin := strings.Repeat(" ", headerMargin)
+	contentWidth := width - 2*headerMargin
+	gap := contentWidth - lipgloss.Width(title) - lipgloss.Width(counts)
 	if gap < 1 {
 		gap = 1
 	}
 	line := lipgloss.NewStyle().MaxWidth(width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", gap), counts),
+		margin + lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", gap), counts) + margin,
 	)
 	rule := lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", width))
 
@@ -190,6 +202,13 @@ func (m model) renderHeader() string {
 	// (keeping the path's own tail — the filename — via truncateKeepingTail).
 	prefix := "▸ "
 	selFile := m.files[m.fileIndex].file
+	// A reviewed checkmark here too, not just in the sidebar — mirroring
+	// renderSidebarRow's own check column (a space when not reviewed, so
+	// the path doesn't shift horizontally depending on status).
+	check := " "
+	if isFileReviewed(m.session, selFile) {
+		check = styleAdded.Render("✓")
+	}
 	label := ""
 	if l := m.currentLineLabel(); l != "" {
 		label = " :" + l
@@ -200,14 +219,35 @@ func (m model) renderHeader() string {
 		statsLabel = fmt.Sprintf(" +%d -%d", selAdded, selRemoved)
 	}
 
-	avail := width - lipgloss.Width(prefix) - lipgloss.Width(label) - lipgloss.Width(statsLabel)
+	// "N/M reviewed" on the right, mirroring the title line's own
+	// reviewedCount/len(m.files) — only shown when there's room left over
+	// after the path/label/stats get a reasonable minimum width, so a
+	// narrow terminal doesn't sacrifice the (more useful) path display for
+	// a count that's already in the title line above.
+	const minPathWidth = 12
+	reviewedText := fmt.Sprintf("%d/%d reviewed", reviewedCount, len(m.files))
+	fixedWidth := headerMargin + lipgloss.Width(prefix) + lipgloss.Width(check) + 1 + lipgloss.Width(label) + lipgloss.Width(statsLabel) + headerMargin
+	avail := width - fixedWidth
+	if avail-lipgloss.Width(reviewedText)-2 < minPathWidth {
+		reviewedText = ""
+	} else {
+		avail -= lipgloss.Width(reviewedText) + 2
+	}
 	truncatedPath := truncateKeepingTail(selFile.Path, avail)
 
 	styledLabel := styleMuted.Render(label)
 	if statsLabel != "" {
 		styledLabel += styleAdded.Render(fmt.Sprintf(" +%d", selAdded)) + styleRemoved.Render(fmt.Sprintf(" -%d", selRemoved))
 	}
-	path := fitLine(styleSelected.Render(prefix)+truncatedPath+styledLabel, width)
+	left := margin + styleSelected.Render(prefix) + check + " " + truncatedPath + styledLabel
+	if reviewedText != "" {
+		pathGap := width - headerMargin - lipgloss.Width(left) - lipgloss.Width(reviewedText)
+		if pathGap < 1 {
+			pathGap = 1
+		}
+		left += strings.Repeat(" ", pathGap) + styleMuted.Render(reviewedText)
+	}
+	path := fitLine(left, width)
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }
 
@@ -1223,7 +1263,16 @@ func firstKey(keys []string) string {
 	return keys[0]
 }
 
+// renderFooter's own margin — same headerMargin used by renderHeader, so
+// the footer's left edge lines up with the header's and the panels' inner
+// content column below (see headerMargin's doc comment) rather than
+// sitting flush against the terminal edge.
 func (m model) renderFooter() string {
+	margin := strings.Repeat(" ", headerMargin)
+	return margin + m.footerContent()
+}
+
+func (m model) footerContent() string {
 	if m.mode == modeComment {
 		k := m.keys
 		hint := fmt.Sprintf("%s save · %s cancel · %s newline · %s edit in $EDITOR",

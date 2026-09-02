@@ -8,10 +8,29 @@ This entire codebase is AI-written. It's been in daily personal use for a while 
 
 ## Install
 
-With [Nix](https://nixos.org) (flakes enabled):
+With [Nix](https://nixos.org) (flakes enabled), try it without installing anything:
+
+```sh
+nix run github:ebozkurt93/rv
+```
+
+...or install it to your profile:
 
 ```sh
 nix profile install github:ebozkurt93/rv
+```
+
+...or add it as a flake input, e.g. in a NixOS/home-manager config:
+
+```nix
+{
+  inputs.rv.url = "github:ebozkurt93/rv";
+
+  outputs = { self, nixpkgs, rv, ... }: {
+    # NixOS: environment.systemPackages = [ rv.packages.${system}.default ];
+    # home-manager: home.packages = [ rv.packages.${system}.default ];
+  };
+}
 ```
 
 Or with Go 1.25+:
