@@ -1239,21 +1239,27 @@ func renderComment(c Comment, stale bool) string {
 // looking the same shade of gray regardless of status.
 //
 // last is true only for the final reply in the thread, exactly like `tree`:
-// every non-last reply branches with "├─" and keeps "│" going in its own
-// continuation lines (something else follows at this level), while the
-// last one caps the thread with "└─" and a blank continuation — otherwise
-// every reply would show "└─" as if it were the end of the thread, and the
-// connector would break instead of running continuously through it.
+// every non-last reply branches with "├─" (something else follows at this
+// level) while the last one caps the thread with "└─". Only that first
+// line's branch glyph depends on last — every continuation line (whether
+// from an explicit "\n" in the body or a wrapped-too-long line) always
+// keeps "│" regardless, since those lines are still part of THIS reply's
+// own message either way. An earlier version blanked the connector on a
+// last reply's continuation lines too (reasoning: nothing follows at the
+// thread level) — but for a long multi-paragraph reply that left every
+// paragraph after the first with no visible connection to the message it
+// belonged to, reading as disconnected, orphaned text instead of one
+// continuous reply.
 func renderReply(r Reply, threadResolved bool, last bool) string {
-	branch, cont := "├─", "  │  "
+	branch := "├─"
 	if last {
-		branch, cont = "└─", "     "
+		branch = "└─"
 	}
 	// The branch character sits in the exact same column "│" does on the
 	// comment's own lines (both at index 2), so the whole comment+replies
 	// block reads as one continuous connected line down the left edge.
 	icon := "  " + branch + " "
-	text := commentBodyLines(icon+r.Author+": ", cont, r.Body)
+	text := commentBodyLines(icon+r.Author+": ", "  │  ", r.Body)
 	if threadResolved {
 		// styleResolved (strikethrough), not plain styleMuted — otherwise a
 		// resolved thread's replies look merely dim instead of struck

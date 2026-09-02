@@ -255,6 +255,30 @@ func TestReplyBranchesLikeTree(t *testing.T) {
 	}
 }
 
+// TestLastReplyKeepsConnectorThroughItsOwnParagraphs guards the fix for a
+// real gap: the LAST reply in a thread caps its own first line with "└─"
+// (nothing follows it in the thread), but that must not blank out the
+// connector on ITS OWN later paragraphs (from an explicit blank line in
+// the body) — those are still part of the same message and need to stay
+// visibly attached to it, not read as orphaned, disconnected text.
+func TestLastReplyKeepsConnectorThroughItsOwnParagraphs(t *testing.T) {
+	body := "first paragraph\n\nsecond paragraph"
+	out := renderReply(Reply{Author: "agent", Body: body}, false, true)
+	rows := strings.Split(out, "\n")
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (paragraph, blank separator, paragraph), got %d: %v", len(rows), rows)
+	}
+	want := commentConnectorColumn(rows[0])
+	if want < 0 {
+		t.Fatalf("expected the first row to contain a connector: %q", rows[0])
+	}
+	for _, row := range rows[1:] {
+		if got := commentConnectorColumn(row); got != want {
+			t.Fatalf("expected the connector to keep running through the last reply's own paragraphs at column %d, got %d in %q", want, got, row)
+		}
+	}
+}
+
 // TestComposingReplyKeepsConnectorRunning guards the fix for a visible
 // "gap": composing a new reply renders below the existing ones, so the
 // previously-last reply must flip from "└─" to "├─" (something now follows
