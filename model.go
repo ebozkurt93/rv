@@ -215,7 +215,9 @@ func (m model) uiPrefs() uiPrefs {
 	}
 }
 
-func (m model) Init() tea.Cmd { return pollSessionCmd() }
+func (m model) Init() tea.Cmd {
+	return tea.Batch(pollSessionCmd(), func() tea.Msg { return tea.RequestBackgroundColor() })
+}
 
 // diffLabel is what's shown in the header for "what am I diffing" — e.g.
 // "HEAD" (the default) or "main..feature".

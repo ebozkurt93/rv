@@ -5,8 +5,32 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// TestSetBackgroundIsDarkSwitchesTints guards the fix for a wrong startup
+// guess (e.g. no $COLORFGBG set on an actually-light terminal) sticking
+// for the whole session: once Bubble Tea reports the real background color
+// via tea.BackgroundColorMsg, setBackgroundIsDark must actually swap the
+// package-level tint state, not just the one it was initialized with.
+func TestSetBackgroundIsDarkSwitchesTints(t *testing.T) {
+	origAdded, origRemoved, origCursor := bgAdded, bgRemoved, bgCursor
+	t.Cleanup(func() { bgAdded, bgRemoved, bgCursor = origAdded, origRemoved, origCursor })
+
+	setBackgroundIsDark(true)
+	if bgAdded != lipgloss.Color(darkTints.added) {
+		t.Fatalf("expected dark tint after setBackgroundIsDark(true), got %v", bgAdded)
+	}
+
+	setBackgroundIsDark(false)
+	if bgAdded != lipgloss.Color(lightTints.added) {
+		t.Fatalf("expected light tint after setBackgroundIsDark(false), got %v", bgAdded)
+	}
+	if bgRemoved != lipgloss.Color(lightTints.removed) || bgCursor != lipgloss.Color(lightTints.cursor) {
+		t.Fatalf("expected removed/cursor tints to switch too, got removed=%v cursor=%v", bgRemoved, bgCursor)
+	}
+}
 
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 	lexer := pickLexer("a.go")

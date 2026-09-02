@@ -29,6 +29,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionPollMsg:
 		m.refreshSessionIfChanged()
 		return m, pollSessionCmd()
+	case tea.BackgroundColorMsg:
+		setBackgroundIsDark(msg.IsDark())
+		return m, nil
 	case editorClosedMsg:
 		if msg.err != nil {
 			m.err = msg.err

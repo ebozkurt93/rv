@@ -55,11 +55,14 @@ var (
 
 // detectDarkBackground guesses whether the terminal has a dark or light
 // background from $COLORFGBG ("fg;bg", set by many terminals — e.g.
-// iTerm2, rxvt, konsole), without ever querying the terminal live (an OSC
-// 11 "what's your background color" query can block for OSCTimeout==5s on
-// a terminal that doesn't answer it, which is a bad startup-latency trade
-// for a cosmetic tint). Defaults to dark, the far more common terminal
-// setup, when the variable is absent or unparseable.
+// iTerm2, rxvt, konsole). This is only the *startup* guess, used to pick
+// tints before the real answer is known — Bubble Tea separately queries
+// the terminal for its actual background color (OSC 11) through its own
+// event loop, which unlike a synchronous query has a built-in timeout and
+// can't stall startup; see RequestBackgroundColor in cli.go/update.go and
+// setBackgroundIsDark below, which replaces this guess once that answer
+// arrives. Defaults to dark, the far more common terminal setup, when the
+// variable is absent or unparseable.
 func detectDarkBackground() bool {
 	v := os.Getenv("COLORFGBG")
 	if v == "" {
@@ -73,13 +76,6 @@ func detectDarkBackground() bool {
 	// Only the two canonical "light" ANSI slots count as light; every other
 	// index (including the accent colors) is treated as dark.
 	return bg != 7 && bg != 15
-}
-
-func activeTints() tintSet {
-	if detectDarkBackground() {
-		return darkTints
-	}
-	return lightTints
 }
 
 var (
@@ -100,7 +96,21 @@ var (
 
 func init() {
 	syntaxContextStyle = styles.Get(baseSyntaxStyle)
-	tints := activeTints()
+	setBackgroundIsDark(detectDarkBackground())
+}
+
+// setBackgroundIsDark (re)builds the tinted formatters and their exposed
+// lipgloss.Colors for the given dark/light background. Called once at
+// startup with detectDarkBackground's guess, and again — from update.go's
+// tea.BackgroundColorMsg handler — once Bubble Tea reports the terminal's
+// actual background color, so a wrong startup guess (e.g. no $COLORFGBG
+// set, on an actually-light terminal) gets corrected instead of producing
+// dark tints against a light UI for the rest of the session.
+func setBackgroundIsDark(dark bool) {
+	tints := darkTints
+	if !dark {
+		tints = lightTints
+	}
 	syntaxAddedFmt = newTintedFormatter(tints.added, tints.addedStrong)
 	syntaxRemovedFmt = newTintedFormatter(tints.removed, tints.removedStrong)
 	syntaxCursorFmt = newTintedFormatter(tints.cursor, tints.cursor)
