@@ -27,6 +27,33 @@ func TestComputeIntralineMasksMarksOnlyTheChangedWord(t *testing.T) {
 	}
 }
 
+// TestComputeIntralineMasksBridgesGapsBetweenConsecutiveChangedWords guards
+// the fix for a prose rewrite (several consecutive changed words) rendering
+// as a series of individually-highlighted words with a one-character
+// plain-tint gap at each space — indistinguishable from noise since the
+// plain and strong tints share a hue — instead of one solid changed span.
+func TestComputeIntralineMasksBridgesGapsBetweenConsecutiveChangedWords(t *testing.T) {
+	old := "a future model (e.g. COLUMNAR, which will need"
+	new := "a future model can read whatever it needs from"
+	oldMask, _ := computeIntralineMasks(old, new)
+	if oldMask == nil {
+		t.Fatalf("expected a mask")
+	}
+	// Everything from "(e.g. COLUMNAR..." through the end of the line should
+	// be one unbroken highlighted run, including the spaces between words.
+	start := len("a future model ")
+	for i := start; i < len(oldMask); i++ {
+		if !oldMask[i] {
+			t.Fatalf("expected a contiguous highlighted run from index %d, got a gap at %d in %v", start, i, oldMask)
+		}
+	}
+	for i := 0; i < start; i++ {
+		if oldMask[i] {
+			t.Fatalf("expected the shared prefix to stay unhighlighted, got a highlight at %d in %v", i, oldMask)
+		}
+	}
+}
+
 func TestComputeIntralineMasksSkipsDissimilarLines(t *testing.T) {
 	oldMask, newMask := computeIntralineMasks("aaaa bbbb cccc dddd", "wxyz qrst mnop ijkl")
 	if oldMask != nil || newMask != nil {

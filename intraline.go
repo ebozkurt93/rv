@@ -108,7 +108,29 @@ func computeIntralineMasks(oldContent, newContent string) (oldMask, newMask []bo
 		return nil, nil
 	}
 
+	bridgeWhitespaceGaps(oldTok, matchedOld)
+	bridgeWhitespaceGaps(newTok, matchedNew)
+
 	return expandTokenMask(oldContent, oldTok, matchedOld), expandTokenMask(newContent, newTok, matchedNew)
+}
+
+// bridgeWhitespaceGaps folds a single matched whitespace token into the
+// surrounding highlight wherever it sits directly between two unmatched
+// (changed) tokens — e.g. two consecutive rewritten words separated by one
+// space. Without this, a run of several changed words renders as a series
+// of highlighted words with a one-character gap of the plain tint between
+// each: visually indistinguishable from noise since the plain and strong
+// tints share the same hue, rather than reading as one changed clause.
+// Mutates matched in place.
+func bridgeWhitespaceGaps(tokens []string, matched []bool) {
+	for i, tok := range tokens {
+		if !matched[i] || !isWhitespaceToken(tok) {
+			continue
+		}
+		if i > 0 && !matched[i-1] && i < len(tokens)-1 && !matched[i+1] {
+			matched[i] = false
+		}
+	}
 }
 
 // isWhitespaceToken reports whether tok is a run of whitespace — such a
