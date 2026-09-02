@@ -219,20 +219,8 @@ func (m model) renderHeader() string {
 		statsLabel = fmt.Sprintf(" +%d -%d", selAdded, selRemoved)
 	}
 
-	// "N/M reviewed" on the right, mirroring the title line's own
-	// reviewedCount/len(m.files) — only shown when there's room left over
-	// after the path/label/stats get a reasonable minimum width, so a
-	// narrow terminal doesn't sacrifice the (more useful) path display for
-	// a count that's already in the title line above.
-	const minPathWidth = 12
-	reviewedText := fmt.Sprintf("%d/%d reviewed", reviewedCount, len(m.files))
 	fixedWidth := headerMargin + lipgloss.Width(prefix) + lipgloss.Width(check) + 1 + lipgloss.Width(label) + lipgloss.Width(statsLabel) + headerMargin
 	avail := width - fixedWidth
-	if avail-lipgloss.Width(reviewedText)-2 < minPathWidth {
-		reviewedText = ""
-	} else {
-		avail -= lipgloss.Width(reviewedText) + 2
-	}
 	truncatedPath := truncateKeepingTail(selFile.Path, avail)
 
 	styledLabel := styleMuted.Render(label)
@@ -240,13 +228,6 @@ func (m model) renderHeader() string {
 		styledLabel += styleAdded.Render(fmt.Sprintf(" +%d", selAdded)) + styleRemoved.Render(fmt.Sprintf(" -%d", selRemoved))
 	}
 	left := margin + styleSelected.Render(prefix) + check + " " + truncatedPath + styledLabel
-	if reviewedText != "" {
-		pathGap := width - headerMargin - lipgloss.Width(left) - lipgloss.Width(reviewedText)
-		if pathGap < 1 {
-			pathGap = 1
-		}
-		left += strings.Repeat(" ", pathGap) + styleMuted.Render(reviewedText)
-	}
 	path := fitLine(left, width)
 	return lipgloss.JoinVertical(lipgloss.Left, line, rule, path)
 }
