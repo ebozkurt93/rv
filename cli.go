@@ -10,9 +10,10 @@ import (
 // treated as a `git diff` spec (a ref, a "a..b" range, "--staged", etc.) and
 // passed straight through — see runTUI.
 var knownSubcommands = map[string]bool{
-	"session": true,
-	"comment": true,
-	"skill":   true,
+	"session":    true,
+	"comment":    true,
+	"skill":      true,
+	"completion": true,
 }
 
 const usage = `rv — local git diff review, with agent handoff
@@ -50,6 +51,18 @@ machine-readable output, meant for scripting):
                          repo. Read this instead of guessing at the flow.
   rv skill path          Print the path to that same guide on disk.
 
+Shell completion:
+  rv completion zsh      Print a zsh completion file. Delegates to git's own
+                          completion (branches, tags, remote refs, a..b/
+                          a...b ranges), so diff-spec arguments tab-complete
+                          the same way they do after 'git diff'. Drop the
+                          output in a directory on your $fpath as "_rv" (run
+                          'print -l $fpath' to see your options) and it
+                          autoloads — no eval/source line needed.
+  rv completion bash      Print a bash completion snippet (same delegation
+                          to git's completion; requires bash-completion's
+                          git support to already be loaded).
+
 Other:
   rv version             Print the version.
   rv -h, --help          Show this help.
@@ -85,6 +98,8 @@ func dispatchSubcommand(name string, rest []string) error {
 		return runComment(rest)
 	case "skill":
 		return runSkill(rest)
+	case "completion":
+		return runCompletion(rest)
 	default:
 		return fmt.Errorf("unknown command %q", name)
 	}
