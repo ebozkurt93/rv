@@ -317,3 +317,91 @@ func TestReplyStyleReflectsThreadResolution(t *testing.T) {
 		t.Fatalf("expected resolved vs unresolved threads to style a reply differently")
 	}
 }
+
+// TestResolvedThreadCollapsesByDefault guards the actual feature: a
+// resolved comment renders as one collapsed summary line (not the full
+// comment + replies), until Enter (Confirm) expands it. An unresolved one
+// always shows in full regardless.
+func TestResolvedThreadCollapsesByDefault(t *testing.T) {
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "fix this", Resolved: true,
+			Replies: []Reply{{ID: "r1", Body: "done", Author: "agent"}}},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.lineIndex = 1
+
+	lines, _, _, _ := m.buildDiffLinesDetailed(80)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "resolved · 1 reply") {
+		t.Fatalf("expected a collapsed one-line summary, got %q", joined)
+	}
+	if strings.Contains(joined, "done") {
+		t.Fatalf("expected the reply body to be hidden while collapsed, got %q", joined)
+	}
+
+	m.toggleCommentsExpandedUnderCursor()
+	expanded, _, _, _ := m.buildDiffLinesDetailed(80)
+	expandedJoined := strings.Join(expanded, "\n")
+	if !strings.Contains(expandedJoined, "fix this") || !strings.Contains(expandedJoined, "done") {
+		t.Fatalf("expected the full thread after Confirm toggles it open, got %q", expandedJoined)
+	}
+}
+
+// TestUnresolvedCommentNeverCollapses guards the other half: an unresolved
+// comment has nothing to hide and always renders in full.
+func TestUnresolvedCommentNeverCollapses(t *testing.T) {
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "still open"},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+
+	lines, _, _, _ := m.buildDiffLinesDetailed(80)
+	if !strings.Contains(strings.Join(lines, "\n"), "still open") {
+		t.Fatalf("expected an unresolved comment to render in full, got %q", lines)
+	}
+}
+
+// TestToggleCommentsExpandedTogglesMultipleResolvedThreadsTogether guards
+// the multi-thread-on-one-line design: a line can accumulate several old
+// resolved discussions (e.g. from before the code around it changed) —
+// Confirm should expand/collapse all of them together in one press, not
+// require toggling each individually, and must leave an unresolved thread
+// on the same line untouched (always expanded).
+func TestToggleCommentsExpandedTogglesMultipleResolvedThreadsTogether(t *testing.T) {
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	sess := Session{Comments: []Comment{
+		{ID: "old1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "old q1", Resolved: true},
+		{ID: "old2", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "old q2", Resolved: true},
+		{ID: "fresh", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "still open q"},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.lineIndex = 1
+
+	before := strings.Join(func() []string { l, _, _, _ := m.buildDiffLinesDetailed(80); return l }(), "\n")
+	if got := strings.Count(before, "▸"); got != 2 {
+		t.Fatalf("expected both resolved threads collapsed (2 '▸' markers), got %d in %q", got, before)
+	}
+	if !strings.Contains(before, "still open q") {
+		t.Fatalf("expected the unresolved thread to always show in full, got %q", before)
+	}
+
+	m.toggleCommentsExpandedUnderCursor()
+	after := strings.Join(func() []string { l, _, _, _ := m.buildDiffLinesDetailed(80); return l }(), "\n")
+	if strings.Contains(after, "▸") {
+		t.Fatalf("expected Confirm to expand BOTH resolved threads together (no '▸' left), got %q", after)
+	}
+	if !strings.Contains(after, "old q1") || !strings.Contains(after, "old q2") {
+		t.Fatalf("expected the full body text of both threads after expanding, got %q", after)
+	}
+}

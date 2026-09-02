@@ -114,6 +114,15 @@ type model struct {
 	// prefs below.
 	commentNavIncludeResolved bool
 
+	// commentExpanded overrides the default expand/collapse state for a
+	// resolved comment thread, keyed by the top-level Comment's ID (see
+	// isCommentExpanded) — a resolved thread collapses to a one-line
+	// summary by default (see renderCollapsedComment), toggled open with
+	// Confirm on its row. Deliberately session-local, not persisted: which
+	// threads you've expanded is transient UI state for the current pass
+	// through the diff, not something worth carrying into config/session.json.
+	commentExpanded map[string]bool
+
 	// helpScroll is how many lines of helpRows() are scrolled past, while
 	// mode == modeHelp — reset to 0 each time the overlay opens (see
 	// keys.Help in updateNormal) so it never reopens mid-scroll from
@@ -166,6 +175,7 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 		showUntracked:             prefs.ShowUntracked,
 		commentNavIncludeResolved: prefs.CommentNavIncludeResolved,
 		splitView:                 prefs.SplitView,
+		commentExpanded:           map[string]bool{},
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
@@ -537,6 +547,74 @@ func (m model) commentsForCurrentLineFresh() []Comment {
 		}
 	}
 	return out
+}
+
+// isCommentExpanded reports whether c's full thread should render, rather
+// than collapsing to a one-line summary (see renderCollapsedComment) —
+// always true for an unresolved comment (nothing to hide), and for a
+// resolved one, whatever was last toggled via Confirm on its row (see
+// toggleCommentsExpandedUnderCursor), defaulting to collapsed the first
+// time it's seen.
+func (m model) isCommentExpanded(c Comment) bool {
+	return !c.Resolved || m.commentExpanded[c.ID]
+}
+
+// commentBeingEdited reports whether the in-progress comment editor (see
+// (m model).renderCommentEditor) is currently targeting c or one of its
+// replies — used to force a collapsed resolved thread open while you're
+// editing something inside it, rather than showing the editor detached
+// below a one-line summary with no visible context for what it's actually
+// replying to.
+func (m model) commentBeingEdited(c Comment) bool {
+	if m.mode != modeComment {
+		return false
+	}
+	if m.editingCommentID == c.ID || m.replyingToCommentID == c.ID {
+		return true
+	}
+	if m.editingReplyID == "" {
+		return false
+	}
+	for _, r := range c.Replies {
+		if r.ID == m.editingReplyID {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleCommentsExpandedUnderCursor flips every RESOLVED comment thread
+// anchored to the cursor's current row between collapsed and expanded, all
+// together — a line can accumulate several old resolved discussions as the
+// code around it keeps changing (see rowComment's Stale case), and
+// toggling them independently would mean tracking which of several
+// near-identical collapsed summaries you last opened. If they're not all
+// in the same state already (mixed, from an earlier partial toggle before
+// a new resolved thread landed on the same line), this expands all of
+// them rather than picking a direction ambiguously. A no-op if nothing on
+// this row is resolved.
+func (m *model) toggleCommentsExpandedUnderCursor() {
+	comments := m.commentsForCurrentLine()
+	var resolved []Comment
+	for _, c := range comments {
+		if c.Resolved {
+			resolved = append(resolved, c)
+		}
+	}
+	if len(resolved) == 0 {
+		return
+	}
+	allExpanded := true
+	for _, c := range resolved {
+		if !m.isCommentExpanded(c) {
+			allExpanded = false
+			break
+		}
+	}
+	target := !allExpanded
+	for _, c := range resolved {
+		m.commentExpanded[c.ID] = target
+	}
 }
 
 func (m model) commentsForCurrentLineRow() []rowComment {

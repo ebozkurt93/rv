@@ -32,7 +32,14 @@ var (
 	styleSelected = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	styleMuted    = lipgloss.NewStyle().Foreground(colorMuted)
 	styleComment  = lipgloss.NewStyle().Foreground(colorComment).Italic(true)
-	styleResolved = lipgloss.NewStyle().Foreground(colorMuted).Strikethrough(true)
+	// No Strikethrough: fine on a short one-line comment, but a resolved
+	// thread with several long paragraphs read as visual noise fighting
+	// the text (a line struck through every few words). Muted color alone
+	// already reads as "done" clearly enough against the active (yellow)
+	// styleComment, especially now that a resolved thread also collapses
+	// to a one-line summary by default (see isCommentExpanded) — you only
+	// see the full body after deliberately expanding it.
+	styleResolved = lipgloss.NewStyle().Foreground(colorMuted)
 	styleError    = lipgloss.NewStyle().Foreground(colorError).Bold(true)
 	styleTitle    = lipgloss.NewStyle().Bold(true)
 
@@ -612,6 +619,10 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
 				continue
 			}
+			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false)
+				continue
+			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
 				appendText(l, i, false)
 			}
@@ -839,6 +850,10 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 			if m.mode == modeComment && m.editingCommentID != "" && c.ID == m.editingCommentID {
 				continue
 			}
+			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth)
+				continue
+			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
 				appendText(l, i, false, commentIndentWidth)
 			}
@@ -971,6 +986,7 @@ func (m model) helpRows() []helpRow {
 		{keys: k.DeleteWord, desc: "while composing: delete the word behind the cursor"},
 		{keys: k.DeleteComment, desc: "delete the comment under the cursor (asks to confirm)"},
 		{keys: k.ToggleResolved, desc: "toggle resolved"},
+		{keys: k.Confirm, desc: "expand/collapse the resolved comment thread(s) on this line"},
 		{keys: k.ToggleReviewed, desc: "mark/unmark the current file reviewed (auto-clears if it changes)"},
 		{keys: k.ClearSession, desc: "clear all comments and reviewed marks for this session (asks to confirm)"},
 		{section: "Display"},
@@ -1224,13 +1240,52 @@ func renderComment(c Comment, stale bool) string {
 	}
 	text := commentBodyLines("  │● "+author+": ", "  │  ", c.Body)
 	if c.Resolved {
-		// No "(resolved)" text suffix — the strikethrough (and its replies'
-		// matching strikethrough, see renderReply) already says this
-		// visually; a text label would be redundant everywhere it appears
-		// and only genuinely applies to the comment's own first line anyway.
+		// No "(resolved)" text suffix here — this is only reached once a
+		// resolved thread has been deliberately expanded (see
+		// renderCollapsedComment, which already says "resolved" on the
+		// summary line you expanded from), and the muted color still
+		// contrasts clearly against the active (yellow) styleComment.
 		return styleResolved.Render(text)
 	}
 	return styleComment.Render(text)
+}
+
+// renderCollapsedComment is renderComment's collapsed form, shown instead
+// of the full comment + all its replies for a resolved thread that hasn't
+// been expanded (see model.isCommentExpanded) — one summary line rather
+// than however many paragraphs the discussion ran to. A line can
+// accumulate several old resolved threads as the code around it keeps
+// changing (see rowComment's Stale case); collapsing by default keeps
+// settled discussion from burying the line itself, or any still-open
+// feedback sharing it, under a wall of text.
+func renderCollapsedComment(c Comment, stale bool) string {
+	author := c.Author
+	if stale {
+		author += " [line changed]"
+	}
+	preview := firstBodyLine(c.Body)
+	replyNote := "resolved"
+	if n := len(c.Replies); n > 0 {
+		unit := "reply"
+		if n > 1 {
+			unit = "replies"
+		}
+		replyNote = fmt.Sprintf("resolved · %d %s", n, unit)
+	}
+	// "▸" rather than "●" — matches the sidebar's own selected-row marker,
+	// reading as "there's more here, expand me" the same way it does there.
+	text := fmt.Sprintf("  │▸ %s: %s  (%s)", author, preview, replyNote)
+	return styleResolved.Render(text)
+}
+
+// firstBodyLine is body's first line, with an ellipsis appended if there
+// was more after it — used only for the collapsed one-line summary, where
+// showing every paragraph would defeat the point of collapsing.
+func firstBodyLine(body string) string {
+	if i := strings.IndexByte(body, '\n'); i >= 0 {
+		return body[:i] + "…"
+	}
+	return body
 }
 
 // renderReply mutes a reply only once its thread is resolved — an active
@@ -1261,10 +1316,9 @@ func renderReply(r Reply, threadResolved bool, last bool) string {
 	icon := "  " + branch + " "
 	text := commentBodyLines(icon+r.Author+": ", "  │  ", r.Body)
 	if threadResolved {
-		// styleResolved (strikethrough), not plain styleMuted — otherwise a
-		// resolved thread's replies look merely dim instead of struck
-		// through like the comment's own first line, as if only that first
-		// line were actually resolved.
+		// styleResolved rather than styleMuted directly — same color today,
+		// but keeps this call site saying WHY it's muted (resolved, not
+		// some other reason) rather than a coincidental shared value.
 		return styleResolved.Render(text)
 	}
 	return styleComment.Render(text)

@@ -404,6 +404,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.ToggleResolved):
 		m.toggleResolvedUnderCursor()
 
+	case keyMatches(msg, k.Confirm):
+		m.toggleCommentsExpandedUnderCursor()
+
 	case keyMatches(msg, k.ToggleReviewed):
 		m.toggleCurrentFileReviewed()
 
