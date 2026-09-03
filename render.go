@@ -810,9 +810,9 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	// of falling back to column 0 (see wrapLineIndented) — used for
 	// comment/reply rows, whose first commentIndentWidth columns are the
 	// "●"/"├─"/"└─" tree connector rather than actual content.
-	appendText := func(text string, rowIdx int, main bool, indent int) {
+	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
 		if m.wrapLines {
-			for _, l := range wrapLineIndented(text, width, indent) {
+			for _, l := range wrapLineIndented(text, width, indent, pad) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
 				mainLine = append(mainLine, main)
@@ -827,7 +827,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	for i, row := range rows {
 		if row.kind == rowHunkHeader {
 			start := len(lines)
-			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false, 0)
+			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false, 0, "")
 			if i == m.lineIndex {
 				cursorLine = start
 			}
@@ -840,7 +840,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		if cursor {
 			cursorLine = start
 		}
-		appendText(text, i, true, 0)
+		appendText(text, i, true, 0, "")
 
 		for _, c := range byRow[i] {
 			// While this exact comment is being edited in place, the editor
@@ -851,11 +851,11 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				continue
 			}
 			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
-				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth)
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, commentBarPad(true))
 				continue
 			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
-				appendText(l, i, false, commentIndentWidth)
+				appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
 			}
 			// A new reply being composed for this exact comment renders
 			// below its existing replies (see the editor block right after
@@ -872,7 +872,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				}
 				last := ri == len(c.Replies)-1 && !composingReplyHere
 				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
-					appendText(l, i, false, commentIndentWidth)
+					appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
 				}
 			}
 		}
@@ -924,19 +924,29 @@ func wrapLine(s string, width int) []string {
 const commentIndentWidth = 5
 
 // wrapLineIndented is wrapLine, but every physical line after the first
-// gets indent blank columns in place of s's own leading structural prefix
-// (see commentIndentWidth) — s's first indent columns are cut off, the
-// remainder is wrapped at the narrower width-indent budget, and each
-// wrapped continuation is re-prefixed with indent plain spaces. Falls back
-// to plain wrapLine if indent doesn't leave a sane width to wrap at.
-func wrapLineIndented(s string, width, indent int) []string {
+// gets pad (indent columns wide) in place of s's own leading structural
+// prefix (see commentIndentWidth) — s's first indent columns are cut off,
+// the remainder is wrapped at the narrower width-indent budget, and each
+// wrapped continuation is re-prefixed with pad. Falls back to plain
+// wrapLine if indent doesn't leave a sane width to wrap at.
+//
+// pad is passed in fully styled (see commentBarPad) rather than computed
+// as blank spaces here: a comment/reply line that's too wide for the
+// terminal and wraps for THAT reason still belongs to the same connected
+// thread as any line that wrapped because the body itself had an explicit
+// "\n" — both need the same "│" continuation bar (see renderReply's own
+// doc comment on why every continuation line keeps the bar regardless of
+// whether more replies follow). A blank pad here silently dropped that bar
+// on any comment/reply whose own line was long enough to wrap on-screen,
+// even though renderComment/renderReply already got the bar right for
+// their own explicit-newline continuations.
+func wrapLineIndented(s string, width, indent int, pad string) []string {
 	if indent <= 0 || indent >= width {
 		return wrapLine(s, width)
 	}
 	prefix := ansi.Cut(s, 0, indent)
 	rest := ansi.Cut(s, indent, ansi.StringWidth(s))
 	contLines := wrapLine(rest, width-indent)
-	pad := strings.Repeat(" ", indent)
 	out := make([]string, len(contLines))
 	for i, l := range contLines {
 		if i == 0 {
@@ -946,6 +956,19 @@ func wrapLineIndented(s string, width, indent int) []string {
 		out[i] = pad + l
 	}
 	return out
+}
+
+// commentBarPad is the styled "│" continuation bar used to re-prefix any
+// wrapped-too-long comment/reply line (see wrapLineIndented) — resolved
+// picks styleResolved to match a resolved thread's muted color, exactly
+// like renderComment/renderReply/renderCollapsedComment already do for
+// their own prefixes.
+func commentBarPad(resolved bool) string {
+	style := styleComment
+	if resolved {
+		style = styleResolved
+	}
+	return style.Render("  │  ")
 }
 
 // helpRow is one line of the ? overlay: either a section header

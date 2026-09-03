@@ -257,13 +257,15 @@ func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 		t.Fatalf("expected the reply's first row to contain a connector: %q", replyRows[0])
 	}
 	for _, row := range replyRows[1:] {
-		// Wrapped continuations don't repeat the "│"/"●" glyph itself (see
-		// wrapLineIndented) — only the indentation column matters here:
-		// the row's first non-space character should start no earlier
-		// than the connector column.
-		firstNonSpace := len(row) - len(strings.TrimLeft(row, " "))
-		if firstNonSpace < want {
-			t.Fatalf("expected wrapped continuation %q to stay indented at/after column %d, got content starting at %d", row, want, firstNonSpace)
+		// A wrapped continuation must repeat the "│" bar at the same
+		// column as the first row's own connector (see commentBarPad) —
+		// this is the actual bug reported live: a reply whose first line
+		// wrapped due to terminal width lost its connector on every
+		// continuation row, making the thread look visibly cut/detached
+		// even though wrapLineIndented kept the indentation right.
+		got := commentConnectorColumn(row)
+		if got != want {
+			t.Fatalf("expected wrapped continuation %q to keep the connector bar at column %d, got %d", row, want, got)
 		}
 	}
 }

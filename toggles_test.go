@@ -168,9 +168,12 @@ func TestWrapLineSplitsAtWidth(t *testing.T) {
 // TestWrapLineIndentedKeepsContinuationAlignedUnderPrefix guards the fix
 // for a wrapped comment/reply line's continuation falling back to column
 // 0 instead of staying aligned under its own structural prefix (the
-// "●"/"├─"/"└─" tree connector) — see commentIndentWidth.
+// "●"/"├─"/"└─" tree connector) — see commentIndentWidth. It also guards
+// that the continuation carries the given pad (the "│" bar in real use,
+// see commentBarPad) rather than blank columns, so a comment/reply that
+// wraps on-screen still reads as connected to the thread it belongs to.
 func TestWrapLineIndentedKeepsContinuationAlignedUnderPrefix(t *testing.T) {
-	got := wrapLineIndented("  │● aaaa bbbb cccc dddd", 15, 5)
+	got := wrapLineIndented("  │● aaaa bbbb cccc dddd", 15, 5, "  │  ")
 	if len(got) < 2 {
 		t.Fatalf("expected the line to wrap into multiple pieces, got %v", got)
 	}
@@ -178,8 +181,8 @@ func TestWrapLineIndentedKeepsContinuationAlignedUnderPrefix(t *testing.T) {
 		t.Fatalf("expected the first line to keep its own prefix, got %q", got[0])
 	}
 	for _, l := range got[1:] {
-		if !strings.HasPrefix(l, "     ") {
-			t.Fatalf("expected every continuation line to start with 5 blank columns, got %q (all: %v)", l, got)
+		if !strings.HasPrefix(l, "  │  ") {
+			t.Fatalf("expected every continuation line to start with the pad, got %q (all: %v)", l, got)
 		}
 	}
 }
@@ -188,7 +191,7 @@ func TestWrapLineIndentedKeepsContinuationAlignedUnderPrefix(t *testing.T) {
 // case (a narrow terminal where the indent would eat the whole width) —
 // must not panic or produce a negative-width wrap.
 func TestWrapLineIndentedFallsBackWhenIndentTooWide(t *testing.T) {
-	got := wrapLineIndented("  │● hello", 4, 5)
+	got := wrapLineIndented("  │● hello", 4, 5, "  │  ")
 	if len(got) == 0 {
 		t.Fatalf("expected at least one line back, got none")
 	}
