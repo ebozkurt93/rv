@@ -21,11 +21,19 @@ import "fmt"
 // once compinit has run — unlike starship/atuin's own eval lines, which
 // don't depend on the completion system at all, so there's no shared
 // convention to lean on for "make sure this line comes after your
-// compinit call." Rather than push that ordering requirement onto
-// whoever's .zshrc this ends up in, the script checks for compdef itself
-// and calls compinit if it's missing — a no-op if compinit already ran
-// (compdef already exists), so this is safe regardless of where the eval
-// line ends up relative to an existing compinit call.
+// compinit call." There's no way to make this genuinely free of that
+// ordering requirement (compdef isn't defined until compinit's own
+// autoloaded file has actually executed at least once — checked directly
+// against zsh's own compinit source; there's no built-in "queue calls
+// made before I've run" mechanism to lean on instead), so rather than
+// push the ordering requirement onto whoever's .zshrc this ends up in,
+// the script checks for compdef itself and runs compinit if it's missing.
+// That call uses -C (trust the existing completion cache, skipping the
+// $fpath rescan/staleness check that makes a plain compinit call
+// noticeably slower) to keep the common "placed before an existing,
+// not-yet-run compinit call" case cheap — still a genuine correctness
+// no-op once compinit has actually run elsewhere (compdef already exists,
+// this whole line short-circuits).
 //
 // service=git is load-bearing, not decoration: zsh's own _git dispatcher
 // only handles top-level "git <cmd>" parsing when $service == git;
@@ -40,7 +48,7 @@ import "fmt"
 // on Tab) can't have one invocation's mutated words/CURRENT/service leak
 // into the next one's — each call starts from the real, unmodified outer
 // context.
-const zshCompletion = `(( $+functions[compdef] )) || { autoload -Uz compinit; compinit }
+const zshCompletion = `(( $+functions[compdef] )) || { autoload -Uz compinit; compinit -C }
 _rv_completion() {
   local service=git
   local -a args

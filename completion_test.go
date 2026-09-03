@@ -40,6 +40,14 @@ func TestRunCompletionZshRunsCompinitIfMissing(t *testing.T) {
 	if !strings.Contains(out, "functions[compdef]") || !strings.Contains(out, "compinit") {
 		t.Fatalf("expected a defensive compdef-availability check that runs compinit if missing, got %q", out)
 	}
+	// -C: trust the existing completion cache rather than doing the full
+	// $fpath rescan/staleness check a plain compinit call does — keeps
+	// this fallback cheap for the common case (placed before an existing,
+	// not-yet-run compinit call elsewhere in .zshrc) instead of silently
+	// doubling zsh's startup cost.
+	if !strings.Contains(out, "compinit -C") {
+		t.Fatalf("expected the fallback compinit call to use -C to stay cheap, got %q", out)
+	}
 }
 
 // TestRunCompletionZshSetsServiceToAvoidInfiniteRecursion guards a real,
