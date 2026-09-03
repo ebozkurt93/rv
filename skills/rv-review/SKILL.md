@@ -28,6 +28,7 @@
 
 - These commands operate on the current git repo's working tree vs `HEAD` — run them from inside the repo the user is reviewing.
 - The user may have the `rv` TUI open in another terminal the whole time. It polls the session file and picks up your replies within ~1s — no need to ask them to reopen it.
+- If the user wants you to keep watching for feedback as they review (e.g. "let me know as I leave comments," "keep an eye on rv while I go through this"), don't just run the loop once — poll `rv comment list --unresolved --json` on an interval (a few seconds is enough) and work through anything new that shows up, for as long as the user wants you watching. Watch both: brand-new top-level comments, and new replies the user adds to a thread that's already open (e.g. following up on your own reply) — an unchanged `resolved: false` doesn't tell you whether `replies` grew since your last check, so diff each comment's replies against what you saw last poll rather than only looking at which comment `id`s are new.
 - Full command reference:
   - `rv comment list [--file F] [--unresolved] [--json]`
   - `rv comment resolve <id>`
