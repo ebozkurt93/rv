@@ -300,16 +300,21 @@ var ansiHue = [8]struct{ normal, bright chroma.Colour }{
 // to (checking both variants' distance, so a color that happens to be
 // vivid doesn't get compared unfairly against only the dark variants), then
 // returns whichever of THAT hue's normal/bright variant contrasts better
-// against bg. The result still might not clear minTintedContrast — callers
-// keep their own black/white fallback for that rarer case (e.g. a custom
-// mid-gray background where neither variant of the matched hue reads
-// well) — but for the common case (a genuinely light or dark background),
-// this keeps text recognizably its own hue instead of needing that
-// fallback at all.
+// against bg — except for the achromatic hue (index 0, black/gray) on a
+// dark bg, or the white hue (index 7) on a light bg, where the variant that
+// would win on paper is skipped outright regardless of its computed
+// contrast ratio: see contrastRatio's own reference-hex caveat below and
+// pickAchromaticVariant's doc comment for why. The result still might not
+// clear minTintedContrast — callers keep their own black/white fallback for
+// that rarer case (e.g. a custom mid-gray background where neither variant
+// of the matched hue reads well) — but for the common case (a genuinely
+// light or dark background), this keeps text recognizably its own hue
+// instead of needing that fallback at all.
 func nearestHueContrasting(seeking, bg chroma.Colour) chroma.Colour {
+	var closestIdx int
 	var closest struct{ normal, bright chroma.Colour }
 	best := -1.0
-	for _, h := range ansiHue {
+	for i, h := range ansiHue {
 		d := h.normal.Distance(seeking)
 		if db := h.bright.Distance(seeking); db < d {
 			d = db
@@ -317,12 +322,44 @@ func nearestHueContrasting(seeking, bg chroma.Colour) chroma.Colour {
 		if best < 0 || d < best {
 			best = d
 			closest = h
+			closestIdx = i
 		}
+	}
+	if v, ok := pickAchromaticVariant(closestIdx, closest.normal, closest.bright, bg); ok {
+		return v
 	}
 	if contrastRatio(closest.bright, bg) >= contrastRatio(closest.normal, bg) {
 		return closest.bright
 	}
 	return closest.normal
+}
+
+// pickAchromaticVariant guards a real bug: plain ANSI "black" (SGR 30) and
+// bright ANSI "white" (SGR 97) are the two terminal-theme slots virtually
+// every color scheme conventionally aliases to its own default background
+// — dark themes commonly set SGR 30 equal to (or barely lighter than) the
+// terminal's own dark background, exactly the way light themes commonly do
+// the same for SGR 97 against a light background. contrastRatio's math only
+// checks OUR OWN reference hex (#000000/#ffffff) against OUR OWN fixed tint
+// — it has no way to know the terminal will actually render that slot as
+// something else entirely, so it can (and did: an operator token rendered
+// via SGR 30 on rv's own dark-green added-line tint) claim a perfectly
+// healthy contrast ratio for a combination that's invisible in practice.
+// Since a dark bg only ever risks the SGR 30 slot, and a light bg only ever
+// risks SGR 97, forcing the OTHER variant of that same hue pair sidesteps
+// the unsafe slot entirely rather than trying to out-calculate a terminal
+// theme this code can't see. ok is false for every hue but the two
+// achromatic ones (0 and 7), where the general contrast-based pick in
+// nearestHueContrasting already runs the caller does need instead.
+func pickAchromaticVariant(hueIdx int, normal, bright, bg chroma.Colour) (chroma.Colour, bool) {
+	dark := relativeLuminance(bg) <= 0.5
+	switch {
+	case hueIdx == 0 && dark: // black/gray hue, dark bg: SGR 30 is unsafe
+		return bright, true
+	case hueIdx == 7 && !dark: // white/gray hue, light bg: SGR 97 is unsafe
+		return normal, true
+	}
+	return normal, false
 }
 
 // relativeLuminance is a standard perceived-brightness weighting (WCAG's

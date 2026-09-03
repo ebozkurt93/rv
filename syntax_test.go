@@ -88,6 +88,39 @@ func TestNearestHueContrastingKeepsHueOnLightBackground(t *testing.T) {
 	}
 }
 
+// TestNearestHueContrastingNeverPicksPlainBlackOnDarkBackground guards a
+// real bug reported live: an Operator token (gray #666666, e.g. "="/"=>")
+// on rv's own dark-green added-line tint (#1f3d2b) rendered via plain ANSI
+// "black" (SGR 30) — which nearestHueContrasting picked because its OWN
+// reference hex (#000000) claims a healthy contrast ratio against
+// #1f3d2b. That ratio is meaningless in practice: SGR 30 is the one slot
+// virtually every dark terminal theme conventionally aliases to its own
+// default background, so the operator was invisible even though the math
+// said otherwise. On a dark background, the achromatic hue must always
+// resolve to the bright/gray variant (SGR 90), never plain black.
+func TestNearestHueContrastingNeverPicksPlainBlackOnDarkBackground(t *testing.T) {
+	gray := chroma.MustParseColour("#666666")
+	bgAddedDark := chroma.MustParseColour(darkTints.added)
+	got := nearestHueContrasting(gray, bgAddedDark)
+	if got == chroma.MustParseColour("#000000") {
+		t.Fatalf("expected the bright/gray variant (never plain black, an unsafe slot on a dark bg), got %v", got)
+	}
+}
+
+// TestNearestHueContrastingNeverPicksBrightWhiteOnLightBackground is the
+// symmetric guard: on a light background, bright ANSI "white" (SGR 97) is
+// the slot most light terminal themes alias to their own background, so
+// the achromatic hue must resolve to the dimmer/gray variant (SGR 37)
+// instead, never plain white.
+func TestNearestHueContrastingNeverPicksBrightWhiteOnLightBackground(t *testing.T) {
+	gray := chroma.MustParseColour("#999999")
+	bgAddedLight := chroma.MustParseColour(lightTints.added)
+	got := nearestHueContrasting(gray, bgAddedLight)
+	if got == chroma.MustParseColour("#ffffff") {
+		t.Fatalf("expected the dimmer/gray variant (never plain white, an unsafe slot on a light bg), got %v", got)
+	}
+}
+
 // TestPlainFormatterNeverEmitsATokenBackground guards a real bug: monokai
 // (like several chroma styles) sets a background on its "Error" token type,
 // meant to flag a genuine lexer error. rv tokenizes one diff line at a time
