@@ -58,7 +58,16 @@ type fileRows struct {
 }
 
 func flattenFile(fd FileDiff) fileRows {
-	fr := fileRows{file: fd, lexer: pickLexer(fd.Path)}
+	lexer := pickLexer(fd.Path)
+	// Tokenized per hunk (each side as one contiguous block) before any of
+	// fd.Hunks' Lines get copied into rows below — see applySyntaxTokens's
+	// doc comment for why tokenizing a whole block beats tokenizing each
+	// line alone.
+	for i := range fd.Hunks {
+		applySyntaxTokens(&fd.Hunks[i], lexer)
+	}
+
+	fr := fileRows{file: fd, lexer: lexer}
 	maxNum := 0
 	for _, h := range fd.Hunks {
 		fr.rows = append(fr.rows, diffRow{kind: rowHunkHeader, hunkHeader: h.Header})

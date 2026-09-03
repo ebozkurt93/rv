@@ -1175,7 +1175,7 @@ func renderLine(lexer chroma.Lexer, l Line, showNumbers bool, numWidth int, curs
 	if cursor {
 		mask = nil
 	}
-	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, visibleContent, expandMaskForTabs(l.Content, mask))
+	content := renderTinted(prefix, prefixFg) + highlightContent(lexer, fmtr, visibleContent, l.Tokens, expandMaskForTabs(l.Content, mask))
 	if !showNumbers {
 		return content
 	}

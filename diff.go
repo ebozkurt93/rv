@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	"github.com/waigani/diffparser"
 )
 
@@ -177,6 +178,16 @@ type Line struct {
 	// applyIntralineHighlights, in which case it's the same rune-length as
 	// Content.
 	Highlight []bool
+	// Tokens is this line's syntax-highlighting tokens, sliced out of a
+	// whole-hunk-side tokenization rather than tokenizing Content alone in
+	// isolation — see applySyntaxTokens's doc comment for why that
+	// distinction matters (a lexer with no cross-line state has no way to
+	// know a line is, say, the second line of a block comment). Populated
+	// by (fileRows) flattenFile once the file's lexer is known; nil until
+	// then, and nil forever for a line whose whole hunk-side failed to
+	// tokenize (highlightContent falls back to tokenizing Content alone
+	// in that case).
+	Tokens []chroma.Token
 }
 
 // Hunk is a contiguous block of changed (and surrounding context) lines.

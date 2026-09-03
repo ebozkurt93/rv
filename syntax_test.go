@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -32,6 +33,61 @@ func TestSetBackgroundIsDarkSwitchesTints(t *testing.T) {
 	}
 }
 
+// TestPlainFormatterFallsBackOnLowContrastAgainstRealBackground guards a
+// real, reported bug: plainFormatter (used for every unchanged/context
+// line — most of what's on screen) picked nearestANSI16 colors with no
+// contrast check against the terminal's actual background at all, unlike
+// tintedFormatter. Colors tuned to read well on a dark background (bright
+// cyan, bright yellow — which is what most of a 16-slot reduction ends up
+// using) are frequently near-unreadable on a light one. Verified directly
+// against the real paraiso-dark palette: on a light background, ordinary
+// Go code like "func main() { return nil }" fell below the contrast
+// threshold on every single token, including plain whitespace.
+func TestPlainFormatterFallsBackOnLowContrastAgainstRealBackground(t *testing.T) {
+	orig := syntaxContextFmt
+	t.Cleanup(func() { syntaxContextFmt = orig })
+
+	setBackgroundIsDark(false)
+	lexer := pickLexer("a.go")
+	out := highlightContent(lexer, syntaxContextFmt, "func main() { return nil }", nil, nil)
+	if !strings.Contains(out, "\033[30m") {
+		t.Fatalf("expected the black contrast fallback on a light background, got %q", out)
+	}
+
+	setBackgroundIsDark(true)
+	out = highlightContent(lexer, syntaxContextFmt, "func main() { return nil }", nil, nil)
+	if strings.Contains(out, "\033[30m") {
+		t.Fatalf("expected no black fallback needed on a dark background (colors should already contrast fine), got %q", out)
+	}
+}
+
+// TestNearestHueContrastingKeepsHueOnLightBackground guards the fix for
+// an over-correction: an earlier version of the fix above made EVERY
+// token fall back to flat black on a light background, since a token
+// color close to a bright ANSI variant (tuned for dark backgrounds, which
+// is what most of a 16-slot reduction favors) almost always fails
+// contrast against white. That reads as "no syntax highlighting at all",
+// not a fix. nearestHueContrasting instead picks the closest HUE first
+// (checking both its normal and bright variant), then whichever of that
+// hue's two variants actually contrasts with the background — so a color
+// that's recognizably cyan, say, stays some shade of cyan on a light
+// background instead of collapsing to black, as long as that hue has a
+// variant dark enough to read on white.
+func TestNearestHueContrastingKeepsHueOnLightBackground(t *testing.T) {
+	white := chroma.MustParseColour("#ffffff")
+	// #00ffff (bright cyan) is tuned for a dark background; its hue's
+	// normal (dark cyan, #007f7f) variant should be picked here instead
+	// of falling through to a fixed black/white.
+	got := nearestHueContrasting(chroma.MustParseColour("#00ffff"), white)
+	want := chroma.MustParseColour("#007f7f")
+	if got != want {
+		t.Fatalf("expected the dark-cyan variant %v on a light background, got %v", want, got)
+	}
+	if contrastRatio(got, white) < minTintedContrast {
+		t.Fatalf("expected the picked variant to actually clear the contrast floor against white, got ratio %.2f", contrastRatio(got, white))
+	}
+}
+
 // TestPlainFormatterNeverEmitsATokenBackground guards a real bug: monokai
 // (like several chroma styles) sets a background on its "Error" token type,
 // meant to flag a genuine lexer error. rv tokenizes one diff line at a time
@@ -44,7 +100,7 @@ func TestPlainFormatterNeverEmitsATokenBackground(t *testing.T) {
 	lexer := pickLexer("a.ts")
 	bgEscape := regexp.MustCompile(`\x1b\[(48;|4[0-7]m|10[0-7]m)`)
 	for _, line := range []string{" */", " /**", " *"} {
-		out := highlightContent(lexer, syntaxContextFmt, line, nil)
+		out := highlightContent(lexer, syntaxContextFmt, line, nil, nil)
 		if bgEscape.MatchString(out) {
 			t.Fatalf("expected no background escape for context line %q, got %q", line, out)
 		}
@@ -53,7 +109,7 @@ func TestPlainFormatterNeverEmitsATokenBackground(t *testing.T) {
 
 func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxContextFmt, "func main() {}", nil)
+	out := highlightContent(lexer, syntaxContextFmt, "func main() {}", nil, nil)
 	if out == "func main() {}" {
 		t.Fatalf("expected ANSI-highlighted output, got plain text back: %q", out)
 	}
@@ -61,7 +117,7 @@ func TestHighlightContentColorsDifferentTokenTypesDifferently(t *testing.T) {
 
 func TestHighlightContentFallsBackOnFallbackLexer(t *testing.T) {
 	lexer := pickLexer("no-such-extension.zzz")
-	out := highlightContent(lexer, syntaxContextFmt, "plain text", nil)
+	out := highlightContent(lexer, syntaxContextFmt, "plain text", nil, nil)
 	if !strings.Contains(out, "plain text") {
 		t.Fatalf("expected fallback lexer to still round-trip the content, got %q", out)
 	}
@@ -69,7 +125,7 @@ func TestHighlightContentFallsBackOnFallbackLexer(t *testing.T) {
 
 func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxAddedFmt, "func main() {}", nil)
+	out := highlightContent(lexer, syntaxAddedFmt, "func main() {}", nil, nil)
 	if !strings.Contains(out, "\033[48;2;") {
 		t.Fatalf("expected a truecolor background escape in every token, got %q", out)
 	}
@@ -82,7 +138,7 @@ func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 func TestTintedFormatterFallsBackWhenTokenColorLacksContrast(t *testing.T) {
 	f := newTintedFormatter("#1f3d2b", "#2d6b45") // same hue family as monokai's comment color
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, f, "// a comment", nil)
+	out := highlightContent(lexer, f, "// a comment", nil, nil)
 	iterator, err := lexer.Tokenise(nil, "// a comment")
 	if err != nil {
 		t.Fatalf("tokenise: %v", err)
