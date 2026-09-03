@@ -17,9 +17,15 @@ import "fmt"
 // currently on $PATH, and works the same regardless of install method
 // (Homebrew, Nix, `go install`, a manual build).
 //
-// compdef (a runtime call here, not a #compdef file header) requires
-// compinit to have already run — same ordering requirement
-// starship/atuin's own eval lines already have in a typical .zshrc.
+// compdef (a runtime call here, not a #compdef file header) only exists
+// once compinit has run — unlike starship/atuin's own eval lines, which
+// don't depend on the completion system at all, so there's no shared
+// convention to lean on for "make sure this line comes after your
+// compinit call." Rather than push that ordering requirement onto
+// whoever's .zshrc this ends up in, the script checks for compdef itself
+// and calls compinit if it's missing — a no-op if compinit already ran
+// (compdef already exists), so this is safe regardless of where the eval
+// line ends up relative to an existing compinit call.
 //
 // service=git is load-bearing, not decoration: zsh's own _git dispatcher
 // only handles top-level "git <cmd>" parsing when $service == git;
@@ -34,7 +40,8 @@ import "fmt"
 // on Tab) can't have one invocation's mutated words/CURRENT/service leak
 // into the next one's — each call starts from the real, unmodified outer
 // context.
-const zshCompletion = `_rv_completion() {
+const zshCompletion = `(( $+functions[compdef] )) || { autoload -Uz compinit; compinit }
+_rv_completion() {
   local service=git
   local -a args
   args=(${words[2,-1]})

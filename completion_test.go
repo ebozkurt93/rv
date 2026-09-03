@@ -24,6 +24,24 @@ func TestRunCompletionZshDelegatesToGit(t *testing.T) {
 	}
 }
 
+// TestRunCompletionZshRunsCompinitIfMissing guards a real reported bug:
+// "zsh: command not found: compdef" — compdef only exists once compinit
+// has run, and eval "$(rv completion zsh)" doesn't get to dictate where in
+// .zshrc it lands relative to the user's own compinit call (if they have
+// one at all). The script must check for compdef itself and run compinit
+// if it's missing, rather than silently requiring a specific eval-line
+// placement no one was told about.
+func TestRunCompletionZshRunsCompinitIfMissing(t *testing.T) {
+	out := captureStdout(t, func() {
+		if err := runCompletion([]string{"zsh"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "functions[compdef]") || !strings.Contains(out, "compinit") {
+		t.Fatalf("expected a defensive compdef-availability check that runs compinit if missing, got %q", out)
+	}
+}
+
 // TestRunCompletionZshSetsServiceToAvoidInfiniteRecursion guards a real,
 // reproduced bug: zsh's own _git dispatcher only handles "git <cmd>"
 // parsing when $service == git; since zsh sets $service to the compdef'd
