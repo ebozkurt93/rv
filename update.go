@@ -334,6 +334,11 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, k.HalfPageUp):
 		m.moveCursor(-m.halfPageSize())
 
+	case keyMatches(msg, k.ScrollDown):
+		m.diffScroll += count
+	case keyMatches(msg, k.ScrollUp):
+		m.diffScroll -= count
+
 	case keyMatches(msg, k.NextFile):
 		m.selectVisibleFile(1)
 	case keyMatches(msg, k.PrevFile):
@@ -441,6 +446,7 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, k.ToggleSplitView):
 		m.splitView = !m.splitView
+		m.diffScroll = 0
 		m.persistUIPrefs()
 		// The cursor's row index means something different in each
 		// representation (a pairedRow can pack multiple diffRows into
@@ -544,6 +550,7 @@ func (m model) updateComment(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // "{count}G" — jump to that 1-based row number, clamped to the file's
 // extent.
 func (m *model) jumpTo(hadCount bool, count int, defaultLast bool) {
+	m.diffScroll = 0
 	if m.splitView {
 		jumpToIn(m.currentSplitRows(), &m.lineIndex, hadCount, count, defaultLast)
 		return
@@ -572,6 +579,7 @@ func jumpToIn[R contentRow](rows []R, lineIndex *int, hadCount bool, count int, 
 // off the end of the current file's hunks into the next/prev visible file
 // instead of stopping — see jumpToHunkAcrossFiles.
 func (m *model) jumpToHunk(dir int) {
+	m.diffScroll = 0
 	var (
 		target int
 		ok     bool
@@ -677,6 +685,7 @@ func lastHunkFirstContentRow[R contentRow](rows []R) int {
 // either end — resolved comments are skipped since there's nothing left to
 // act on there.
 func (m *model) jumpToComment(dir int) {
+	m.diffScroll = 0
 	type loc struct{ fileIdx, rowIdx int }
 	var locs []loc
 	for _, c := range m.session.Comments {
@@ -731,6 +740,7 @@ func (m *model) jumpToComment(dir int) {
 // never rests on a header, whether it's passing through one on its way
 // somewhere else or would otherwise land exactly on one.
 func (m *model) moveCursor(delta int) {
+	m.diffScroll = 0
 	if m.splitView {
 		m.lineIndex = moveCursorIn(m.currentSplitRows(), m.lineIndex, delta)
 		return
@@ -771,6 +781,7 @@ func (m *model) selectFile(idx int) {
 	if len(m.files) == 0 {
 		return
 	}
+	m.diffScroll = 0
 	if idx < 0 {
 		idx = 0
 	}

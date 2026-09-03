@@ -435,3 +435,77 @@ func TestToggleCommentsExpandedTogglesMultipleResolvedThreadsTogether(t *testing
 		t.Fatalf("expected the full body text of both threads after expanding, got %q", after)
 	}
 }
+
+// TestClampAdditionalScrollPagesPastCenteredWindow guards the fix for a
+// real gap: a comment thread taller than the viewport used to be
+// unreachable past clampScroll's height/2 window below the cursor's own
+// row, with no way to see the rest of it — j/k only moves between rows,
+// and moving off the current row re-centers on a different row's block
+// entirely. clampAdditionalScroll must let a positive offset push the
+// window further down (revealing more of the block below), clamped to the
+// same [0, total-height] bounds clampScroll itself respects.
+func TestClampAdditionalScrollPagesPastCenteredWindow(t *testing.T) {
+	base := clampScroll(5, 100, 20) // cursor at row 5, centered
+	if got := clampAdditionalScroll(base, 0, 100, 20); got != base {
+		t.Fatalf("expected zero offset to leave the base scroll unchanged, got %d want %d", got, base)
+	}
+	if got := clampAdditionalScroll(base, 10, 100, 20); got != base+10 {
+		t.Fatalf("expected a positive offset to scroll further down, got %d want %d", got, base+10)
+	}
+	if got := clampAdditionalScroll(base, 1000, 100, 20); got != 80 {
+		t.Fatalf("expected the offset to clamp at total-height (80), got %d", got)
+	}
+	if got := clampAdditionalScroll(base, -1000, 100, 20); got != 0 {
+		t.Fatalf("expected the offset to clamp at 0, got %d", got)
+	}
+}
+
+// TestScrollDownRevealsMoreOfATallCommentThread exercises the real key
+// handling path (updateNormal) end to end: a reply long enough to wrap
+// past the viewport's height must have more of its later lines revealed
+// by repeated ScrollDown presses, without moving m.lineIndex off the row
+// it started on.
+func TestScrollDownRevealsMoreOfATallCommentThread(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	var paragraphs []string
+	for i := 0; i < 40; i++ {
+		paragraphs = append(paragraphs, "paragraph number "+strings.Repeat("z", i%3)+" "+string(rune('a'+i%26)))
+	}
+	longBody := strings.Join(paragraphs, "\n\n")
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: longBody},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.width, m.height = 80, 15
+	startLine := m.lineIndex
+
+	firstFrame := m.renderDiff()
+
+	mm, _ := m.updateNormal(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl, Text: ""})
+	m2 := mm.(model)
+	for i := 0; i < 20; i++ {
+		mm2, _ := m2.updateNormal(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl, Text: ""})
+		m2 = mm2.(model)
+	}
+	if m2.lineIndex != startLine {
+		t.Fatalf("expected ScrollDown to leave the cursor row unchanged, got %d want %d", m2.lineIndex, startLine)
+	}
+	if m2.diffScroll == 0 {
+		t.Fatalf("expected repeated ScrollDown presses to accumulate a manual scroll offset")
+	}
+	scrolledFrame := m2.renderDiff()
+	if scrolledFrame == firstFrame {
+		t.Fatalf("expected the rendered frame to change after scrolling down through a tall thread")
+	}
+
+	// Moving the cursor resets the manual scroll — it only means anything
+	// relative to the row it was set on.
+	m2.moveCursor(0)
+	if m2.diffScroll != 0 {
+		t.Fatalf("expected moveCursor to reset diffScroll back to 0, got %d", m2.diffScroll)
+	}
+}

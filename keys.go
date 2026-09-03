@@ -11,6 +11,8 @@ type Keymap struct {
 	MoveUp             []string
 	HalfPageDown       []string
 	HalfPageUp         []string
+	ScrollDown         []string // scroll the diff view without moving the cursor off its row — for paging through a comment thread taller than the viewport
+	ScrollUp           []string
 	NextFile           []string
 	PrevFile           []string
 	NextHunk           []string
@@ -52,6 +54,8 @@ func defaultKeymap() Keymap {
 		MoveUp:             []string{"k", "up"},
 		HalfPageDown:       []string{"ctrl+d"},
 		HalfPageUp:         []string{"ctrl+u"},
+		ScrollDown:         []string{"ctrl+e"},
+		ScrollUp:           []string{"ctrl+y"},
 		NextFile:           []string{"tab", "]"},
 		PrevFile:           []string{"shift+tab", "["},
 		NextHunk:           []string{"}"},

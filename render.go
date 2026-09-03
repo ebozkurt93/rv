@@ -342,6 +342,30 @@ func clampScroll(cursor, total, height int) int {
 	return scroll
 }
 
+// clampAdditionalScroll adds a manual scroll offset (model.diffScroll, see
+// ScrollDown/ScrollUp) on top of clampScroll's cursor-centered base — a
+// comment/reply thread taller than the viewport can otherwise show only
+// the height/2 lines below the cursor's own row, with no way to see the
+// rest of it, since j/k only moves between rows and moving off the current
+// row re-centers on a completely different block. The offset can freely
+// push the cursor's own line out of view; that's the point of deliberately
+// scrolling to see more of the current row's block than centering alone
+// shows. Clamped to the same [0, total-height] bounds clampScroll itself
+// respects.
+func clampAdditionalScroll(base, offset, total, height int) int {
+	if height <= 0 || total <= height {
+		return 0
+	}
+	scroll := base + offset
+	if scroll < 0 {
+		scroll = 0
+	}
+	if max := total - height; scroll > max {
+		scroll = max
+	}
+	return scroll
+}
+
 func (m model) renderSidebar() string {
 	innerW := m.sidebarWidth() - borderOverheadW
 	innerH := m.bodyHeight() - borderOverheadH
@@ -492,6 +516,7 @@ func (m model) renderDiff() string {
 
 	lines, cursorLine, rowFor, mainLine := m.buildDiffLinesDetailed(innerW)
 	scroll := clampScroll(cursorLine, len(lines), innerH)
+	scroll = clampAdditionalScroll(scroll, m.diffScroll, len(lines), innerH)
 	end := min(scroll+innerH, len(lines))
 	window := fitBlock(lines[scroll:end], innerH)
 
@@ -529,6 +554,7 @@ func (m model) renderDiffSplit() string {
 
 	lines, cursorLine, _, _ := m.buildSplitDiffLines(innerW)
 	scroll := clampScroll(cursorLine, len(lines), innerH)
+	scroll = clampAdditionalScroll(scroll, m.diffScroll, len(lines), innerH)
 	end := min(scroll+innerH, len(lines))
 	window := fitBlock(lines[scroll:end], innerH)
 
@@ -992,6 +1018,8 @@ func (m model) helpRows() []helpRow {
 		{keys: k.MoveUp, desc: "move up"},
 		{keys: k.HalfPageDown, desc: "half page down"},
 		{keys: k.HalfPageUp, desc: "half page up"},
+		{keys: k.ScrollDown, desc: "scroll view down a line, without moving the cursor off its row (for a comment thread taller than the screen)"},
+		{keys: k.ScrollUp, desc: "scroll view up a line, without moving the cursor off its row"},
 		{keys: k.Top, desc: "jump to top (press twice); a count jumps to that line"},
 		{keys: k.Bottom, desc: "jump to bottom; a count jumps to that line"},
 		{keys: k.NextHunk, desc: "next hunk (current file only)"},

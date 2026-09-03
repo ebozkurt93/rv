@@ -97,6 +97,8 @@ func keymapFields(km *Keymap) map[string]*[]string {
 		"move_up":              &km.MoveUp,
 		"half_page_down":       &km.HalfPageDown,
 		"half_page_up":         &km.HalfPageUp,
+		"scroll_down":          &km.ScrollDown,
+		"scroll_up":            &km.ScrollUp,
 		"next_file":            &km.NextFile,
 		"prev_file":            &km.PrevFile,
 		"next_hunk":            &km.NextHunk,

@@ -101,6 +101,15 @@ type model struct {
 	lineIndex  int    // index into files[fileIndex].rows
 	fileFilter string // confirmed sidebar filter (substring, case-insensitive on path); "" means show everything
 
+	// diffScroll is a manual scroll offset added on top of renderDiff's
+	// normal cursor-centering (see clampAdditionalScroll) — lets
+	// ScrollDown/ScrollUp page through a comment thread taller than the
+	// viewport without moving the cursor off its own row, which would
+	// re-center the view on a different row's block entirely. Any row
+	// change (moveCursor, jumpTo*, selectFile, ...) resets this back to 0,
+	// since it only means anything relative to the row it was set on.
+	diffScroll int
+
 	pendingG    bool   // mid-"gg" chord
 	countBuffer string // digits typed so far for a pending vim-style count, e.g. "10" of "10j"
 
