@@ -42,15 +42,25 @@ go install github.com/ebozkurt93/rv@latest
 ## Usage
 
 ```sh
-rv                  # working tree vs HEAD (the default)
-rv HEAD~3           # vs an older commit
-rv main..feature    # a branch range
-rv --staged         # staged changes only
+rv                          # working tree vs HEAD (the default)
+rv HEAD~3                   # vs an older commit
+rv main..feature            # feature vs main's current tip
+rv main...feature           # feature vs main's merge-base — what GitHub's PR view shows
+rv --staged                 # staged changes only
 ```
 
-Any argument that isn't a known subcommand is passed straight through to `git diff` — `rv` doesn't reimplement revision syntax.
+Any argument that isn't a known subcommand is passed straight through to `git diff` — `rv` doesn't reimplement revision syntax. Prefer three dots (`...`) over two when comparing against a base branch: two dots compares tips directly, so if the base has moved on with commits your branch doesn't have, those pollute the diff; three dots compares against the merge-base instead.
 
 Move around with `j`/`k`, `{`/`}` for hunks, `tab`/`shift+tab` for files. Press `c` to leave a comment on the line under the cursor, `d` to delete one, `r` to toggle resolved. Press `?` inside the TUI for the full keybinding reference.
+
+### Shell completion
+
+```sh
+eval "$(rv completion zsh)"   # add to .zshrc
+eval "$(rv completion bash)"  # add to .bashrc — requires bash-completion's git support
+```
+
+Delegates to your shell's own git completion, so diff-spec arguments (branches, tags, remote refs, `a..b`/`a...b` ranges) tab-complete the same way they do after `git diff` — no reimplemented ref-listing to keep in sync.
 
 ## Agent handoff
 

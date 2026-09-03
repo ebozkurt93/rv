@@ -52,16 +52,18 @@ machine-readable output, meant for scripting):
   rv skill path          Print the path to that same guide on disk.
 
 Shell completion:
-  rv completion zsh      Print a zsh completion file. Delegates to git's own
-                          completion (branches, tags, remote refs, a..b/
-                          a...b ranges), so diff-spec arguments tab-complete
-                          the same way they do after 'git diff'. Drop the
-                          output in a directory on your $fpath as "_rv" (run
-                          'print -l $fpath' to see your options) and it
-                          autoloads — no eval/source line needed.
-  rv completion bash      Print a bash completion snippet (same delegation
-                          to git's completion; requires bash-completion's
-                          git support to already be loaded).
+  rv completion zsh       Print a zsh completion script. Delegates to git's
+  rv completion bash      own completion (branches, tags, remote refs,
+                           a..b/a...b ranges), so diff-spec arguments
+                           tab-complete the same way they do after
+                           'git diff'. Add to .zshrc/.bashrc:
+                             eval "$(rv completion zsh)"   # or: bash
+                           (same eval-in-your-rc-file idiom as e.g.
+                           starship/atuin's own shell init — always matches
+                           whatever 'rv' is currently on $PATH, regardless
+                           of how it's installed.) bash requires
+                           bash-completion's git support to already be
+                           loaded.
 
 Other:
   rv version             Print the version.

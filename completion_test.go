@@ -16,8 +16,8 @@ func TestRunCompletionZshDelegatesToGit(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
-	if !strings.HasPrefix(out, "#compdef rv") {
-		t.Fatalf("expected a #compdef header so this autoloads for the rv command, got %q", out)
+	if !strings.Contains(out, "compdef _rv_completion rv") {
+		t.Fatalf("expected a runtime compdef registration (eval-friendly, not a #compdef file), got %q", out)
 	}
 	if !strings.Contains(out, "git diff") || !strings.Contains(out, "_git") {
 		t.Fatalf("expected delegation to git's own diff completion, got %q", out)
@@ -80,7 +80,7 @@ func TestCompletionDispatchesAsSubcommand(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
-	if !strings.HasPrefix(out, "#compdef rv") {
+	if !strings.Contains(out, "compdef _rv_completion rv") {
 		t.Fatalf("expected the zsh completion script, got %q", out)
 	}
 }
