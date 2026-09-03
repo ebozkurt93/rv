@@ -220,7 +220,9 @@ func TestCommentContinuationLineKeepsConnectorColumn(t *testing.T) {
 // physical continuation rows must also stay aligned under the connector
 // column instead of falling back to column 0 (the actual bug reported:
 // wrapping a long reply visibly detached its overflow text from the
-// thread it belonged to).
+// thread it belonged to). Uses a NON-last reply (a second, short reply
+// follows it) — a last reply's own wrap continuation is deliberately blank
+// instead (see TestLastReplyBlanksConnectorThroughItsOwnParagraphs).
 func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 	withTempHome(t)
 	n := 1
@@ -230,7 +232,10 @@ func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 	longBody := "This is a deliberately very long single reply line meant to force word-wrapping across several physical rows once it exceeds the diff pane's available width."
 	sess := Session{Comments: []Comment{
 		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "short",
-			Replies: []Reply{{ID: "r1", Body: longBody, Author: "agent"}}},
+			Replies: []Reply{
+				{ID: "r1", Body: longBody, Author: "agent"},
+				{ID: "r2", Body: "ok", Author: "user"},
+			}},
 	}}
 	m := newModel("/repo", []FileDiff{fd}, sess, nil)
 	m.wrapLines = true
@@ -285,15 +290,41 @@ func TestReplyBranchesLikeTree(t *testing.T) {
 	}
 }
 
-// TestLastReplyKeepsConnectorThroughItsOwnParagraphs guards the fix for a
-// real gap: the LAST reply in a thread caps its own first line with "└─"
-// (nothing follows it in the thread), but that must not blank out the
-// connector on ITS OWN later paragraphs (from an explicit blank line in
-// the body) — those are still part of the same message and need to stay
-// visibly attached to it, not read as orphaned, disconnected text.
-func TestLastReplyKeepsConnectorThroughItsOwnParagraphs(t *testing.T) {
+// TestLastReplyBlanksConnectorThroughItsOwnParagraphs guards the actual bug
+// reported live ("you see that it does not connect"): "└" terminates its
+// own vertical stroke by turning the corner — it never continues downward
+// in any font — so a "│" placed directly beneath it always reads as
+// visually disconnected from the corner above it, not as a continuation of
+// it, regardless of color or column alignment being otherwise correct. An
+// earlier version deliberately kept the bar running through the last
+// reply's own later paragraphs (worried they'd otherwise look orphaned),
+// but a wrong-looking connector is worse than a quieter one — the shared
+// indentation alone still visually groups the paragraphs under the reply
+// that owns them.
+func TestLastReplyBlanksConnectorThroughItsOwnParagraphs(t *testing.T) {
 	body := "first paragraph\n\nsecond paragraph"
 	out := renderReply(Reply{Author: "agent", Body: body}, false, true)
+	rows := strings.Split(out, "\n")
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (paragraph, blank separator, paragraph), got %d: %v", len(rows), rows)
+	}
+	if got := commentConnectorColumn(rows[0]); got < 0 {
+		t.Fatalf("expected the first row to contain a connector (the '└' branch itself): %q", rows[0])
+	}
+	for _, row := range rows[1:] {
+		if got := commentConnectorColumn(row); got >= 0 {
+			t.Fatalf("expected no connector on the last reply's own later paragraphs (blank instead, since '└' doesn't continue downward), got one at column %d in %q", got, row)
+		}
+	}
+}
+
+// TestNonLastReplyKeepsConnectorThroughItsOwnParagraphs is the sibling
+// guard: a non-last reply's branch is "├", which DOES have a stroke
+// continuing downward (something else really does follow at this level in
+// the thread) — so its own later paragraphs correctly keep the bar.
+func TestNonLastReplyKeepsConnectorThroughItsOwnParagraphs(t *testing.T) {
+	body := "first paragraph\n\nsecond paragraph"
+	out := renderReply(Reply{Author: "agent", Body: body}, false, false)
 	rows := strings.Split(out, "\n")
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows (paragraph, blank separator, paragraph), got %d: %v", len(rows), rows)
@@ -304,7 +335,7 @@ func TestLastReplyKeepsConnectorThroughItsOwnParagraphs(t *testing.T) {
 	}
 	for _, row := range rows[1:] {
 		if got := commentConnectorColumn(row); got != want {
-			t.Fatalf("expected the connector to keep running through the last reply's own paragraphs at column %d, got %d in %q", want, got, row)
+			t.Fatalf("expected the connector to keep running through a non-last reply's own paragraphs at column %d, got %d in %q", want, got, row)
 		}
 	}
 }

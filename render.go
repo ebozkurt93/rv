@@ -898,7 +898,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				}
 				last := ri == len(c.Replies)-1 && !composingReplyHere
 				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
-					appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
+					appendText(l, i, false, commentIndentWidth, replyBarPad(c.Resolved, last))
 				}
 			}
 		}
@@ -995,6 +995,19 @@ func commentBarPad(resolved bool) string {
 		style = styleResolved
 	}
 	return style.Render("  │  ")
+}
+
+// replyBarPad is commentBarPad's reply-specific counterpart: a reply's own
+// wrap-induced continuation must match renderReply's explicit-newline
+// continuation (see its own doc comment) — the bar for a non-last reply
+// ("├" has a stroke continuing down), blank for the last one ("└"
+// terminates in its own glyph, so a bar directly beneath it reads as
+// disconnected rather than continuing it).
+func replyBarPad(resolved, last bool) string {
+	if last {
+		return "     "
+	}
+	return commentBarPad(resolved)
 }
 
 // helpRow is one line of the ? overlay: either a section header
@@ -1346,20 +1359,28 @@ func firstBodyLine(body string) string {
 //
 // last is true only for the final reply in the thread, exactly like `tree`:
 // every non-last reply branches with "├─" (something else follows at this
-// level) while the last one caps the thread with "└─". Only that first
-// line's branch glyph depends on last — every continuation line (whether
-// from an explicit "\n" in the body or a wrapped-too-long line) always
-// keeps "│" regardless, since those lines are still part of THIS reply's
-// own message either way. An earlier version blanked the connector on a
-// last reply's continuation lines too (reasoning: nothing follows at the
-// thread level) — but for a long multi-paragraph reply that left every
-// paragraph after the first with no visible connection to the message it
-// belonged to, reading as disconnected, orphaned text instead of one
-// continuous reply.
+// level) while the last one caps the thread with "└─". The continuation
+// prefix (explicit "\n" in the body, or a wrapped-too-long line) follows
+// suit: non-last keeps "│" running, since "├" itself has a stroke
+// continuing downward and something really does follow at this level —
+// but last's continuation goes blank instead of "│", since "└"'s stroke
+// terminates in its own glyph (it turns the corner, it doesn't continue
+// down) and a "│" directly beneath it reads as visually disconnected from
+// the corner above it, not as a continuation of it, regardless of color or
+// alignment being otherwise correct — this is what was actually reported
+// live ("you see that it does not connect"). An earlier version tried
+// blank for this same reason and reverted it, worried a long multi-
+// paragraph reply's later paragraphs would then look orphaned with no
+// visible connection to their own first line — but a wrong-looking
+// connector is worse than a slightly quieter one, and the indentation
+// alone still visually groups the paragraphs under the reply that owns
+// them.
 func renderReply(r Reply, threadResolved bool, last bool) string {
 	branch := "├─"
+	cont := "  │  "
 	if last {
 		branch = "└─"
+		cont = "     "
 	}
 	// The branch character sits in the exact same column "│" does on the
 	// comment's own lines (both at index 2), so the whole comment+replies
@@ -1372,7 +1393,7 @@ func renderReply(r Reply, threadResolved bool, last bool) string {
 		// some other reason) rather than a coincidental shared value.
 		style = styleResolved
 	}
-	return commentBodyLines(style, icon+r.Author+": ", "  │  ", r.Body)
+	return commentBodyLines(style, icon+r.Author+": ", cont, r.Body)
 }
 
 // commentBodyLines joins body's lines with firstPrefix on the first and
