@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"image/color"
 	"strings"
 
@@ -42,6 +43,16 @@ var (
 	styleResolved = lipgloss.NewStyle().Foreground(colorMuted)
 	styleError    = lipgloss.NewStyle().Foreground(colorError).Bold(true)
 	styleTitle    = lipgloss.NewStyle().Bold(true)
+
+	// commentAuthorPalette colors comment/reply authors by name (see
+	// authorColor) — capped at 3 because red/green/cyan/gray are already
+	// claimed elsewhere and a "bright" variant is the same hue, just
+	// lighter (bright yellow still reads as yellow next to plain yellow).
+	commentAuthorPalette = []color.Color{
+		colorComment,
+		lipgloss.Color("4"), // blue
+		lipgloss.Color("5"), // magenta
+	}
 
 	panelBorder = lipgloss.RoundedBorder()
 
@@ -957,13 +968,31 @@ func wrapLine(s string, width int) []string {
 	return lines
 }
 
-// maxCommentWrapWidth caps how wide a comment/reply body is allowed to wrap,
-// independent of the diff pane's own (possibly much wider, especially in
-// split view where it's both columns combined) width — a wrapped paragraph
-// that stretches past a comfortable reading measure is hard to scan even
-// though it's no longer truncated. Diff code lines aren't capped this way:
-// real code wrapping at the pane's actual width is expected, but prose in a
-// comment reads like prose and wants a prose-width column.
+// authorColor hashes name into commentAuthorPalette; "user" always gets
+// slot 0 (yellow) to match rv's original comment color.
+func authorColor(name string) color.Color {
+	if name == "user" {
+		return commentAuthorPalette[0]
+	}
+	h := fnv.New32a()
+	h.Write([]byte(name))
+	idx := 1 + int(h.Sum32())%(len(commentAuthorPalette)-1)
+	return commentAuthorPalette[idx]
+}
+
+// commentStyles dims (Faint) a resolved thread rather than switching to
+// styleResolved's flat gray, so the author's hue survives resolution.
+func commentStyles(authorCol color.Color, resolved bool) (style, authorStyle lipgloss.Style) {
+	style = lipgloss.NewStyle().Foreground(authorCol).Italic(true)
+	if resolved {
+		style = style.Faint(true)
+	}
+	return style, style.Bold(true)
+}
+
+// maxCommentWrapWidth caps comment/reply wrap width independent of the diff
+// pane's (possibly much wider) width — a paragraph stretched to pane width
+// is hard to read even though it's not truncated. Code lines aren't capped.
 const maxCommentWrapWidth = 90
 
 // commentIndentWidth is the column width of every comment/reply line's own
@@ -1329,16 +1358,8 @@ func renderComment(c Comment, stale bool) string {
 	if stale {
 		author += " [line changed]"
 	}
-	style := styleComment
-	if c.Resolved {
-		// No "(resolved)" text suffix here — this is only reached once a
-		// resolved thread has been deliberately expanded (see
-		// renderCollapsedComment, which already says "resolved" on the
-		// summary line you expanded from), and the muted color still
-		// contrasts clearly against the active (yellow) styleComment.
-		style = styleResolved
-	}
-	return commentBodyLines(style, "  │● "+author+": ", "  │  ", c.Body)
+	style, authorStyle := commentStyles(authorColor(c.Author), c.Resolved)
+	return commentBodyLines(style, authorStyle, "  │● ", author+": ", "  │  ", c.Body)
 }
 
 // renderCollapsedComment is renderComment's collapsed form, shown instead
@@ -1379,11 +1400,6 @@ func firstBodyLine(body string) string {
 	return body
 }
 
-// renderReply mutes a reply only once its thread is resolved — an active
-// thread's replies render in the normal comment color instead, so "this is
-// still open" reads clearly at a glance rather than every reply always
-// looking the same shade of gray regardless of status.
-//
 // last is true only for the final reply in the thread, exactly like `tree`:
 // every non-last reply branches with "├─" (something else follows at this
 // level) while the last one caps the thread with "└─". The continuation
@@ -1413,14 +1429,8 @@ func renderReply(r Reply, threadResolved bool, last bool) string {
 	// comment's own lines (both at index 2), so the whole comment+replies
 	// block reads as one continuous connected line down the left edge.
 	icon := "  " + branch + " "
-	style := styleComment
-	if threadResolved {
-		// styleResolved rather than styleMuted directly — same color today,
-		// but keeps this call site saying WHY it's muted (resolved, not
-		// some other reason) rather than a coincidental shared value.
-		style = styleResolved
-	}
-	return commentBodyLines(style, icon+r.Author+": ", cont, r.Body)
+	style, authorStyle := commentStyles(authorColor(r.Author), threadResolved)
+	return commentBodyLines(style, authorStyle, icon, r.Author+": ", cont, r.Body)
 }
 
 // commentBodyLines joins body's lines with firstPrefix on the first and
@@ -1436,10 +1446,13 @@ func renderReply(r Reply, threadResolved bool, last bool) string {
 // output) wrapped far more of it than it should have. Verified directly:
 // a 2-paragraph reply's first ("short first") line came back padded to
 // the second paragraph's full width before this fix.
-func commentBodyLines(style lipgloss.Style, firstPrefix, contPrefix, body string) string {
+// authorStyle bolds just icon+authorLabel on the first line — splitting
+// into separate Render() calls is safe since neither style sets .Width()
+// (see the padding caveat above).
+func commentBodyLines(style, authorStyle lipgloss.Style, icon, authorLabel, contPrefix, body string) string {
 	lines := strings.Split(body, "\n")
 	rendered := make([]string, len(lines))
-	rendered[0] = style.Render(firstPrefix + lines[0])
+	rendered[0] = style.Render(icon) + authorStyle.Render(authorLabel) + style.Render(lines[0])
 	for i, cont := range lines[1:] {
 		rendered[i+1] = style.Render(contPrefix + cont)
 	}

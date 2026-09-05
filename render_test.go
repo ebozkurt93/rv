@@ -1,10 +1,14 @@
 package main
 
 import (
+	"image/color"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -275,13 +279,117 @@ func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 	}
 }
 
-// TestCommentWrapCapsBelowPaneWidth guards the fix for comment/reply bodies
-// stretching to the diff pane's full width once it's wide (long lines are
-// hard to read even when they're not truncated) — the reported ask was "a
-// very long thread is not so readable" at a wide pane width. Comment/reply
-// text should wrap at maxCommentWrapWidth regardless of how much wider the
-// pane itself is, while an ordinary long code line is still allowed to use
-// the full pane width (only prose gets the narrower cap).
+// TestAuthorColorIsStableAndDistinguishesGroups guards "user" keeping its
+// original yellow and any other author (including a custom --author name)
+// getting a stable, different color.
+func TestAuthorColorIsStableAndDistinguishesGroups(t *testing.T) {
+	if authorColor("user") != commentAuthorPalette[0] {
+		t.Fatalf("expected \"user\" to keep the original (first-slot) color")
+	}
+	if authorColor("agent") == authorColor("user") {
+		t.Fatalf("expected \"agent\" to get a different color than \"user\"")
+	}
+	if authorColor("reviewer-bot") == authorColor("user") {
+		t.Fatalf("expected a custom --author name to get a different color than \"user\"")
+	}
+	first := authorColor("reviewer-bot")
+	if got := authorColor("reviewer-bot"); got != first {
+		t.Fatalf("expected authorColor to be stable across calls for the same name")
+	}
+}
+
+// ansiHueFamilyInText extracts the base ANSI foreground hue (0-7) from a
+// rendered string; a "bright" code (90-97) maps to its normal (30-37)
+// counterpart since it's the same hue, just lighter. -1 if none found.
+func ansiHueFamilyInText(s string) int {
+	for _, m := range regexp.MustCompile(`\d+`).FindAllString(s, -1) {
+		code, _ := strconv.Atoi(m)
+		switch {
+		case code >= 30 && code <= 37:
+			return code - 30
+		case code >= 90 && code <= 97:
+			return code - 90
+		}
+	}
+	return -1
+}
+
+// ansiHueFamily is ansiHueFamilyInText for a color rendered in isolation.
+func ansiHueFamily(c color.Color) int {
+	return ansiHueFamilyInText(lipgloss.NewStyle().Foreground(c).Render("x"))
+}
+
+// TestCommentAuthorPaletteHasNoYellowVariant guards against a palette entry
+// that's technically a different SGR code but the same hue as user's
+// yellow (bright yellow did this — "agent" rendered as yellow too).
+func TestCommentAuthorPaletteHasNoYellowVariant(t *testing.T) {
+	for i, c := range commentAuthorPalette[1:] {
+		if hue := ansiHueFamily(c); hue == ansiHueFamily(colorComment) {
+			t.Fatalf("palette slot %d is the same hue family as user's yellow", i+1)
+		}
+	}
+}
+
+// TestCommentAuthorPrefixIsBold guards that only the "author:" label is
+// bold, not the icon or body.
+func TestCommentAuthorPrefixIsBold(t *testing.T) {
+	c := Comment{Author: "user", Body: "hello there"}
+	out := renderComment(c, false)
+	authorIdx := strings.Index(out, "user:")
+	if authorIdx < 0 {
+		t.Fatalf("expected rendered comment to contain the author label: %q", out)
+	}
+	if !strings.Contains(out[:authorIdx], "\x1b[1") {
+		t.Fatalf("expected a bold SGR code before the author label: %q", out)
+	}
+	bodyIdx := strings.Index(out, "hello there")
+	if bodyIdx < 0 {
+		t.Fatalf("expected rendered comment to contain the body: %q", out)
+	}
+	if strings.Contains(out[authorIdx:bodyIdx], "\x1b[1") {
+		t.Fatalf("expected no bold SGR code between the author label and the body: %q", out)
+	}
+}
+
+// TestResolvedCommentKeepsAuthorHue guards resolved threads dimming
+// (Faint) instead of collapsing every author into flat gray.
+func TestResolvedCommentKeepsAuthorHue(t *testing.T) {
+	userResolved := renderComment(Comment{Author: "user", Body: "x", Resolved: true}, false)
+	agentResolved := renderComment(Comment{Author: "agent", Body: "x", Resolved: true}, false)
+
+	userHue := ansiHueFamilyInText(userResolved)
+	if userHue < 0 {
+		t.Fatalf("expected a plain ANSI hue code in the resolved comment: %q", userResolved)
+	}
+	if mutedHue := ansiHueFamily(colorMuted); userHue == mutedHue {
+		t.Fatalf("expected resolved user comment to keep yellow's hue, not muted gray's")
+	}
+	if got := ansiHueFamilyInText(agentResolved); got == userHue {
+		t.Fatalf("expected resolved agent comment to keep a hue distinct from resolved user comment, got %d for both", got)
+	}
+
+	active := renderComment(Comment{Author: "user", Body: "x"}, false)
+	if userResolved == active {
+		t.Fatalf("expected resolved and active comments from the same author to render differently")
+	}
+}
+
+// TestReplyAuthorColorDiffersFromCommentAuthor guards author coloring
+// reaching renderReply too, not just renderComment.
+func TestReplyAuthorColorDiffersFromCommentAuthor(t *testing.T) {
+	userReply := renderReply(Reply{Author: "user", Body: "x"}, false, true)
+	agentReply := renderReply(Reply{Author: "agent", Body: "x"}, false, true)
+	if userReply == agentReply {
+		t.Fatalf("expected different authors' replies to render differently")
+	}
+	if ansi.Strip(userReply) == ansi.Strip(agentReply) {
+		t.Fatalf("expected the plain text to still differ by author name")
+	}
+}
+
+// TestCommentWrapCapsBelowPaneWidth guards comment/reply text wrapping at
+// maxCommentWrapWidth regardless of pane width, while code lines still use
+// the full pane width.
 func TestCommentWrapCapsBelowPaneWidth(t *testing.T) {
 	withTempHome(t)
 	n := 1

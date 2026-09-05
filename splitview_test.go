@@ -198,14 +198,8 @@ func TestSplitSidePhysicalLinesWrapsAndPadsToMatch(t *testing.T) {
 	}
 }
 
-// TestSplitViewWrapsCommentBody guards a regression where split view's own
-// buildSplitDiffLines never checked m.wrapLines at all — comment/reply rows
-// there always got appended raw and left to fitLine's plain truncation, so
-// toggling wrap had no visible effect in split mode (the exact bug
-// reported live: "the comments do not seem to line wrap on split mode no
-// matter the setting"). Mirrors
-// TestWrappedCommentReplyStaysAlignedUnderConnector's unified-view version,
-// but through buildSplitDiffLines instead.
+// TestSplitViewWrapsCommentBody guards buildSplitDiffLines actually
+// honoring m.wrapLines for comment/reply rows (it didn't before).
 func TestSplitViewWrapsCommentBody(t *testing.T) {
 	withTempHome(t)
 	n := 1
