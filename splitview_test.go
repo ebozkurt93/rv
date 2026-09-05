@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -194,5 +195,56 @@ func TestSplitSidePhysicalLinesWrapsAndPadsToMatch(t *testing.T) {
 	pad := splitPadLine(nil, false, 20)
 	if got := ansi.StringWidth(pad); got != 20 {
 		t.Fatalf("expected the pad line to be exactly width 20, got %d (%q)", got, pad)
+	}
+}
+
+// TestSplitViewWrapsCommentBody guards a regression where split view's own
+// buildSplitDiffLines never checked m.wrapLines at all — comment/reply rows
+// there always got appended raw and left to fitLine's plain truncation, so
+// toggling wrap had no visible effect in split mode (the exact bug
+// reported live: "the comments do not seem to line wrap on split mode no
+// matter the setting"). Mirrors
+// TestWrappedCommentReplyStaysAlignedUnderConnector's unified-view version,
+// but through buildSplitDiffLines instead.
+func TestSplitViewWrapsCommentBody(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	longBody := "This is a deliberately very long single comment line meant to force word-wrapping across several physical rows once it exceeds the split diff pane's available width."
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: longBody},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.splitView = true
+	m.wrapLines = true
+
+	lines, _, _, mainLine := m.buildSplitDiffLines(40)
+	var commentRows []string
+	inComment := false
+	for i, l := range lines {
+		stripped := ansi.Strip(l)
+		if strings.Contains(stripped, "user:") {
+			inComment = true
+		} else if mainLine[i] || strings.TrimSpace(stripped) == "" {
+			inComment = false
+		}
+		if inComment {
+			commentRows = append(commentRows, stripped)
+		}
+	}
+	if len(commentRows) < 2 {
+		t.Fatalf("expected the long comment to wrap into multiple rows at width 40, got %d: %v", len(commentRows), commentRows)
+	}
+
+	want := commentConnectorColumn(commentRows[0])
+	if want < 0 {
+		t.Fatalf("expected the comment's first row to contain a connector: %q", commentRows[0])
+	}
+	for _, row := range commentRows[1:] {
+		if got := commentConnectorColumn(row); got != want {
+			t.Fatalf("expected wrapped continuation %q to keep the connector bar at column %d, got %d", row, want, got)
+		}
 	}
 }

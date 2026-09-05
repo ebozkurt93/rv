@@ -598,7 +598,15 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 	byRow := m.commentsByRow(fr)
 	leftW, rightW := splitColumnWidths(width)
 
-	appendText := func(text string, rowIdx int, main bool) {
+	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
+		if m.wrapLines {
+			for _, l := range wrapLineIndented(text, width, indent, pad) {
+				lines = append(lines, l)
+				rowFor = append(rowFor, rowIdx)
+				mainLine = append(mainLine, main)
+			}
+			return
+		}
 		lines = append(lines, text)
 		rowFor = append(rowFor, rowIdx)
 		mainLine = append(mainLine, main)
@@ -607,7 +615,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 	for i, row := range rows {
 		if row.kind == rowHunkHeader {
 			start := len(lines)
-			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false)
+			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false, 0, "")
 			if i == m.lineIndex {
 				cursorLine = start
 			}
@@ -635,7 +643,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 			if k < len(rightLines) {
 				r = rightLines[k]
 			}
-			appendText(l+sep+r, i, true)
+			appendText(l+sep+r, i, true, 0, "")
 		}
 
 		for _, c := range byRow[i] {
@@ -646,11 +654,11 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 				continue
 			}
 			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
-				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false)
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, commentBarPad(true))
 				continue
 			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
-				appendText(l, i, false)
+				appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
 			}
 			composingReplyHere := m.mode == modeComment && i == m.lineIndex && m.replyingToCommentID == c.ID
 			for ri, r := range c.Replies {
@@ -659,13 +667,15 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 				}
 				last := ri == len(c.Replies)-1 && !composingReplyHere
 				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
-					appendText(l, i, false)
+					appendText(l, i, false, commentIndentWidth, replyBarPad(c.Resolved, last))
 				}
 			}
 		}
 		if m.mode == modeComment && i == m.lineIndex {
 			for _, l := range strings.Split(m.renderCommentEditor(), "\n") {
-				appendText(l, i, false)
+				lines = append(lines, l)
+				rowFor = append(rowFor, i)
+				mainLine = append(mainLine, false)
 			}
 		}
 	}
