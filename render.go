@@ -600,7 +600,11 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 
 	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
 		if m.wrapLines {
-			for _, l := range wrapLineIndented(text, width, indent, pad) {
+			w := width
+			if indent == commentIndentWidth && w > maxCommentWrapWidth {
+				w = maxCommentWrapWidth
+			}
+			for _, l := range wrapLineIndented(text, w, indent, pad) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
 				mainLine = append(mainLine, main)
@@ -848,7 +852,11 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	// "●"/"├─"/"└─" tree connector rather than actual content.
 	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
 		if m.wrapLines {
-			for _, l := range wrapLineIndented(text, width, indent, pad) {
+			w := width
+			if indent == commentIndentWidth && w > maxCommentWrapWidth {
+				w = maxCommentWrapWidth
+			}
+			for _, l := range wrapLineIndented(text, w, indent, pad) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
 				mainLine = append(mainLine, main)
@@ -948,6 +956,15 @@ func wrapLine(s string, width int) []string {
 	}
 	return lines
 }
+
+// maxCommentWrapWidth caps how wide a comment/reply body is allowed to wrap,
+// independent of the diff pane's own (possibly much wider, especially in
+// split view where it's both columns combined) width — a wrapped paragraph
+// that stretches past a comfortable reading measure is hard to scan even
+// though it's no longer truncated. Diff code lines aren't capped this way:
+// real code wrapping at the pane's actual width is expected, but prose in a
+// comment reads like prose and wants a prose-width column.
+const maxCommentWrapWidth = 90
 
 // commentIndentWidth is the column width of every comment/reply line's own
 // structural prefix — renderComment's "  │● "/"  │  " and renderReply's

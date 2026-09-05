@@ -275,6 +275,48 @@ func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 	}
 }
 
+// TestCommentWrapCapsBelowPaneWidth guards the fix for comment/reply bodies
+// stretching to the diff pane's full width once it's wide (long lines are
+// hard to read even when they're not truncated) — the reported ask was "a
+// very long thread is not so readable" at a wide pane width. Comment/reply
+// text should wrap at maxCommentWrapWidth regardless of how much wider the
+// pane itself is, while an ordinary long code line is still allowed to use
+// the full pane width (only prose gets the narrower cap).
+func TestCommentWrapCapsBelowPaneWidth(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	longCode := strings.Repeat("x", maxCommentWrapWidth+40)
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: longCode, OldLine: &n, NewLine: &n},
+	}}}}
+	longBody := strings.Repeat("word ", 40)
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: longCode, Author: "user", Body: longBody},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.wrapLines = true
+
+	paneWidth := maxCommentWrapWidth + 40
+	lines, _, _, mainLine := m.buildDiffLinesDetailed(paneWidth)
+
+	sawWideMainLine := false
+	for i, l := range lines {
+		w := ansi.StringWidth(ansi.Strip(l))
+		if mainLine[i] {
+			if w > maxCommentWrapWidth {
+				sawWideMainLine = true
+			}
+			continue
+		}
+		if w > maxCommentWrapWidth {
+			t.Fatalf("expected comment row capped at %d columns, got %d: %q", maxCommentWrapWidth, w, l)
+		}
+	}
+	if !sawWideMainLine {
+		t.Fatalf("expected the long code line to still use the full %d-column pane width, unlike comment rows", paneWidth)
+	}
+}
+
 // TestReplyBranchesLikeTree guards the fix for the "└" appearing on every
 // reply regardless of position — only the last reply should cap the thread
 // with "└─"; every earlier one gets "├─" so the connector keeps running to
