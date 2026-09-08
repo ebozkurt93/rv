@@ -13,47 +13,34 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
+	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
-// baseSyntaxStyle is the chroma style whose per-token-type colors get
-// reduced to the nearest of the basic 16 ANSI colors by plainFormatter/
-// tintedFormatter — so which base style we pick mostly just decides how
-// tokens (keyword vs string vs comment...) sort into different ANSI slots;
-// the *actual* rendered hue is always whatever the user's terminal theme
-// has configured for that slot, same as the rest of rv's coloring.
+// baseSyntaxStyle is the chroma style rv renders directly as truecolor (see
+// plainFormatter/tintedFormatter) — same approach as bat/delta/GitHub's own
+// diff view, rather than trying to remap syntax colors onto the user's
+// 16-slot terminal ANSI palette (an earlier design this file used to use:
+// it kept breaking in new ways every time a terminal theme reassigned one
+// of those 16 slots to something unexpected, since there's no reliable way
+// to know what a named ANSI color will actually render as). Rendering the
+// style's own hex directly sidesteps that whole class of bug.
 //
-// friendly rather than the more common monokai: measured directly how
-// many DISTINCT, ACTUALLY-READABLE colors (i.e. after
-// nearestHueContrasting + the minTintedContrast floor — not just raw
-// ANSI-slot count, which turned out to be a poor predictor once
-// background-contrast filtering is applied) each candidate style produces
-// for a realistic TypeScript sample. monokai collapses keywords, types,
-// and constants all onto the same cyan slot, and names/functions/classes
-// all onto the same yellow slot — e.g. "locker: Locker" renders the
-// variable and its type annotation in the identical color. An earlier
-// pick, paraiso-dark, fixed that specific case but only survived
-// background-contrast filtering with 4 distinct colors on a dark
-// terminal and 3 on a light one for the same sample; friendly kept 6 on
-// both, while still keeping keywords and type names visually distinct
-// (paraiso-dark's one genuine win) — without the pitfalls of other
-// wide-spreading candidates tried: vim and tango leave ordinary
-// identifiers/function names uncolored entirely (same as plain text),
-// fruity collapses names/operators/punctuation all onto plain white.
+// friendly rather than the more common monokai: measured directly how many
+// DISTINCT colors each candidate style produces for a realistic TypeScript
+// sample. monokai collapses keywords, types, and constants all onto the
+// same cyan, and names/functions/classes all onto the same yellow — e.g.
+// "locker: Locker" renders the variable and its type annotation in the
+// identical color. friendly keeps keywords and type names visually
+// distinct without that collapsing.
 const baseSyntaxStyle = "friendly"
 
 // Added/removed/cursor tints are a subtle wash rather than a solid color —
-// matching Hunk/GitHub's diff rendering. That rules out the basic 16-color
-// ANSI palette for backgrounds: every one of those 16 slots is a fully
-// saturated color (there's no "dark green" among them, only "green"), so
-// baking one in as a background always looks like a neon highlighter rather
-// than a tint. These are fixed truecolor hex values instead — picked once
-// for a dark-background terminal (darkTints) or a light one (lightTints),
-// chosen via a cheap COLORFGBG-based guess (see detectDarkBackground) since
-// there's no way to read the terminal's actual background color without a
-// live OSC query, which can hang for seconds on terminals that never
-// answer it. Token foreground colors are unaffected — those still reduce
-// to the user's actual 16-slot ANSI palette via nearestANSI16, same as
-// plain context lines.
+// matching Hunk/GitHub's diff rendering. These are fixed truecolor hex
+// values — picked once for a dark-background terminal (darkTints) or a
+// light one (lightTints), chosen via a cheap COLORFGBG-based guess (see
+// detectDarkBackground) since there's no way to read the terminal's actual
+// background color without a live OSC query, which can hang for seconds on
+// terminals that never answer it.
 type tintSet struct {
 	added, removed, cursor string
 	// addedStrong/removedStrong are a more saturated wash than
@@ -124,24 +111,46 @@ func init() {
 // set, on an actually-light terminal) gets corrected instead of producing
 // dark tints against a light UI for the rest of the session.
 func setBackgroundIsDark(dark bool) {
-	tints := darkTints
 	contextBg := "#000000"
 	if !dark {
-		tints = lightTints
 		contextBg = "#ffffff"
+	}
+	applyBackground(dark, contextBg)
+}
+
+// setBackgroundColor is setBackgroundIsDark's more precise counterpart,
+// used once Bubble Tea reports the terminal's ACTUAL background color (see
+// update.go's tea.BackgroundColorMsg handler) — bg embeds color.Color
+// directly, so it can be passed here as-is. plainFormatter's contrast
+// reference (contextBg) then measures against this real color instead of a
+// pure #000000/#ffffff stand-in: reported live, ordinary context-line text
+// reading as low-contrast/hard to read even after minTintedContrast was
+// raised, because the terminal's actual background (a dark navy, say) has
+// a meaningfully different luminance than the "#000000" guess a token's
+// contrast was actually being checked against — a color that cleared the
+// bar against pure black doesn't necessarily clear it against the
+// terminal's real, less-extreme background.
+func setBackgroundColor(bg color.Color) {
+	r, g, b, _ := bg.RGBA()
+	hex := fmt.Sprintf("#%02x%02x%02x", r>>8, g>>8, b>>8)
+	dark := relativeLuminance(chroma.MustParseColour(hex)) <= 0.5
+	applyBackground(dark, hex)
+}
+
+// applyBackground is setBackgroundIsDark/setBackgroundColor's shared body:
+// dark decides which tint set backs added/removed/cursor lines (see
+// tintSet's own doc comment for why those stay fixed, deliberately subtle
+// hues rather than also using the terminal's real color), while contextBg
+// is the exact contrast reference plainFormatter checks context-line token
+// colors against.
+func applyBackground(dark bool, contextBg string) {
+	tints := darkTints
+	if !dark {
+		tints = lightTints
 	}
 	syntaxAddedFmt = newTintedFormatter(tints.added, tints.addedStrong)
 	syntaxRemovedFmt = newTintedFormatter(tints.removed, tints.removedStrong)
 	syntaxCursorFmt = newTintedFormatter(tints.cursor, tints.cursor)
-	// plainFormatter never emits a background of its own (see its doc
-	// comment) — contextBg is only a contrast reference, standing in for
-	// "roughly how light or dark the terminal's real background is",
-	// exactly like tintedFormatter's own bg is used to judge contrast
-	// against a real tint. Without this, a color like bright cyan or
-	// bright yellow — picked because it reads well on a dark background,
-	// which nearestANSI16's whole reference table implicitly assumes —
-	// stays exactly that color on a light terminal too, where it's nearly
-	// unreadable.
 	syntaxContextFmt = newPlainFormatter(contextBg)
 	bgAdded = lipgloss.Color(tints.added)
 	bgRemoved = lipgloss.Color(tints.removed)
@@ -239,135 +248,10 @@ func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string,
 	return strings.ReplaceAll(buf.String(), "\n", "")
 }
 
-// ansi16 is chroma's own 16-color TTY table (see its formatters/
-// tty_indexed.go), copied here because it's unexported there — needed so
-// tintedFormatter can emit the same theme-following 16-color foreground
-// codes as formatters.TTY16 while pairing them with a truecolor background
-// tint, which chroma's own formatters can't do (each only handles one
-// color depth for both fg and bg).
-var ansi16 = map[chroma.Colour]string{
-	chroma.MustParseColour("#000000"): "\033[30m", chroma.MustParseColour("#7f0000"): "\033[31m",
-	chroma.MustParseColour("#007f00"): "\033[32m", chroma.MustParseColour("#7f7fe0"): "\033[33m",
-	chroma.MustParseColour("#00007f"): "\033[34m", chroma.MustParseColour("#7f007f"): "\033[35m",
-	chroma.MustParseColour("#007f7f"): "\033[36m", chroma.MustParseColour("#e5e5e5"): "\033[37m",
-	chroma.MustParseColour("#555555"): "\033[90m", chroma.MustParseColour("#ff0000"): "\033[91m",
-	chroma.MustParseColour("#00ff00"): "\033[92m", chroma.MustParseColour("#ffff00"): "\033[93m",
-	chroma.MustParseColour("#0000ff"): "\033[94m", chroma.MustParseColour("#ff00ff"): "\033[95m",
-	chroma.MustParseColour("#00ffff"): "\033[96m", chroma.MustParseColour("#ffffff"): "\033[97m",
-}
-
-// nearestANSI16 finds the closest of chroma's 16 canonical colors to seeking
-// (Lab-space distance, same metric formatters.TTY16 uses internally).
-func nearestANSI16(seeking chroma.Colour) chroma.Colour {
-	var closest chroma.Colour
-	best := -1.0
-	for candidate := range ansi16 {
-		d := candidate.Distance(seeking)
-		if best < 0 || d < best {
-			best = d
-			closest = candidate
-		}
-	}
-	return closest
-}
-
-// ansiHue is chroma's own 16-color table (ansi16 above) regrouped into its
-// 8 underlying hues, each with a "normal" (SGR 30-37) and "bright" (SGR
-// 90-97) variant — e.g. dark red vs bright red. Used by
-// nearestHueContrasting instead of nearestANSI16 for anything that needs
-// to also stay readable against a known background: nearestANSI16 alone
-// picks whichever of all 16 is objectively closest with no regard for
-// which variant that happens to be, so a token whose real color is a
-// vivid, bright hue (tuned to read well on a dark terminal, which is what
-// most of a 16-slot reduction ends up favoring) stays exactly that bright
-// on a light terminal too — where it's nearly unreadable. Falling back to
-// a fixed black/white in that case (an earlier version of this fix) does
-// solve readability, but at the cost of nearly all distinct token colors
-// collapsing onto the same one or two colors, which reads as "no syntax
-// highlighting" rather than "a fixed palette that respects the terminal."
-var ansiHue = [8]struct{ normal, bright chroma.Colour }{
-	{chroma.MustParseColour("#000000"), chroma.MustParseColour("#555555")},
-	{chroma.MustParseColour("#7f0000"), chroma.MustParseColour("#ff0000")},
-	{chroma.MustParseColour("#007f00"), chroma.MustParseColour("#00ff00")},
-	{chroma.MustParseColour("#7f7fe0"), chroma.MustParseColour("#ffff00")},
-	{chroma.MustParseColour("#00007f"), chroma.MustParseColour("#0000ff")},
-	{chroma.MustParseColour("#7f007f"), chroma.MustParseColour("#ff00ff")},
-	{chroma.MustParseColour("#007f7f"), chroma.MustParseColour("#00ffff")},
-	{chroma.MustParseColour("#e5e5e5"), chroma.MustParseColour("#ffffff")},
-}
-
-// nearestHueContrasting finds which of ansiHue's 8 hues seeking is closest
-// to (checking both variants' distance, so a color that happens to be
-// vivid doesn't get compared unfairly against only the dark variants), then
-// returns whichever of THAT hue's normal/bright variant contrasts better
-// against bg — except for the achromatic hue (index 0, black/gray) on a
-// dark bg, or the white hue (index 7) on a light bg, where the variant that
-// would win on paper is skipped outright regardless of its computed
-// contrast ratio: see contrastRatio's own reference-hex caveat below and
-// pickAchromaticVariant's doc comment for why. The result still might not
-// clear minTintedContrast — callers keep their own black/white fallback for
-// that rarer case (e.g. a custom mid-gray background where neither variant
-// of the matched hue reads well) — but for the common case (a genuinely
-// light or dark background), this keeps text recognizably its own hue
-// instead of needing that fallback at all.
-func nearestHueContrasting(seeking, bg chroma.Colour) chroma.Colour {
-	var closestIdx int
-	var closest struct{ normal, bright chroma.Colour }
-	best := -1.0
-	for i, h := range ansiHue {
-		d := h.normal.Distance(seeking)
-		if db := h.bright.Distance(seeking); db < d {
-			d = db
-		}
-		if best < 0 || d < best {
-			best = d
-			closest = h
-			closestIdx = i
-		}
-	}
-	if v, ok := pickAchromaticVariant(closestIdx, closest.normal, closest.bright, bg); ok {
-		return v
-	}
-	if contrastRatio(closest.bright, bg) >= contrastRatio(closest.normal, bg) {
-		return closest.bright
-	}
-	return closest.normal
-}
-
-// pickAchromaticVariant guards a real bug: plain ANSI "black" (SGR 30) and
-// bright ANSI "white" (SGR 97) are the two terminal-theme slots virtually
-// every color scheme conventionally aliases to its own default background
-// — dark themes commonly set SGR 30 equal to (or barely lighter than) the
-// terminal's own dark background, exactly the way light themes commonly do
-// the same for SGR 97 against a light background. contrastRatio's math only
-// checks OUR OWN reference hex (#000000/#ffffff) against OUR OWN fixed tint
-// — it has no way to know the terminal will actually render that slot as
-// something else entirely, so it can (and did: an operator token rendered
-// via SGR 30 on rv's own dark-green added-line tint) claim a perfectly
-// healthy contrast ratio for a combination that's invisible in practice.
-// Since a dark bg only ever risks the SGR 30 slot, and a light bg only ever
-// risks SGR 97, forcing the OTHER variant of that same hue pair sidesteps
-// the unsafe slot entirely rather than trying to out-calculate a terminal
-// theme this code can't see. ok is false for every hue but the two
-// achromatic ones (0 and 7), where the general contrast-based pick in
-// nearestHueContrasting already runs the caller does need instead.
-func pickAchromaticVariant(hueIdx int, normal, bright, bg chroma.Colour) (chroma.Colour, bool) {
-	dark := relativeLuminance(bg) <= 0.5
-	switch {
-	case hueIdx == 0 && dark: // black/gray hue, dark bg: SGR 30 is unsafe
-		return bright, true
-	case hueIdx == 7 && !dark: // white/gray hue, light bg: SGR 97 is unsafe
-		return normal, true
-	}
-	return normal, false
-}
-
 // relativeLuminance is a standard perceived-brightness weighting (WCAG's
-// coefficients), used only to compare our own fixed hex values against each
-// other — not a claim about how any given terminal actually renders an ANSI
-// slot, since that's terminal-theme-defined and unknowable here. Good
-// enough as a heuristic: it's built from the same reference hexes
-// nearestANSI16 already matches against.
+// coefficients), used to judge a token's real chroma color against the
+// exact background rv itself chose (context/added/removed/cursor tints are
+// all fixed truecolor — see contrastRatio below).
 func relativeLuminance(c chroma.Colour) float64 {
 	return 0.2126*float64(c.Red())/255 + 0.7152*float64(c.Green())/255 + 0.0722*float64(c.Blue())/255
 }
@@ -382,68 +266,108 @@ func contrastRatio(a, b chroma.Colour) float64 {
 	return la / lb
 }
 
-// minTintedContrast is the floor below which a token's own color is
-// considered unreadable against a tinted (or plain) background and gets
-// swapped for the flat black/white fallback instead — e.g. monokai's
-// comment gray, or a token that happens to reduce to the same hue as the
-// tint itself (a dark green keyword on a dark green "added" tint), which
-// without this would render as text with virtually no contrast against
-// its own line.
-//
-// Deliberately well below a WCAG body-text bar (AA is 4.5:1, even
-// AA-large is 3:1): chroma's own "normal" (non-bright) ANSI reference
-// colors — the ones nearestHueContrasting picks for a light background —
-// only have a luminance around 0.15-0.4 to begin with, so their contrast
-// against a light background (or a pale tint like the "added"/"removed"
-// wash) lands in the 1.6-2.4 range even in the best case. A stricter
-// floor here doesn't produce BETTER color choices, since
-// nearestHueContrasting has already picked the more-contrasting of a
-// hue's two variants — it just rejects them anyway and forces flat
-// black/white for nearly everything, which reads as "no syntax
-// highlighting at all" (measured directly: 2.2 rejected 45 of 46 tokens
-// in a real code sample against the "added" tint). This only guards
-// against genuinely bad cases (plain text/punctuation colors that are
-// already close to the background, typically under 1.2) — accent colors
-// with merely modest contrast are still far more useful than no color at
-// all, especially since anything rejected here still falls back to a
-// clearly-readable flat black/white rather than disappearing.
-const minTintedContrast = 1.5
+// minTintedContrast is the WCAG contrast bar a token's color must clear
+// against whatever background actually sits behind it — WCAG's "AA large
+// text"/UI-component bar (3:1) rather than the stricter 4.5:1 body-text
+// one, because 4.5:1 is mathematically unreachable against rv's OWN
+// deliberately-subtle dark "added" tint (#1f3d2b, a wash, not solid — see
+// tintSet's own doc comment) even with pure white text: measured directly,
+// ~4.05 is the ceiling there, full stop, for any foreground at all. Picking
+// a target above a real background's own ceiling wouldn't produce a better
+// result — every token failing that background would converge on the
+// exact same fully-desaturated white (see ensureContrast), which reads as
+// "no syntax highlighting at all" on added lines specifically. 3:1 leaves
+// real headroom under every one of rv's own tints' ceilings (~4.05 is the
+// tightest), so most tokens needing repair land on a partial, still
+// recognizably-tinted nudge instead of maxing out. Falling short doesn't
+// mean discarding the color for flat black/white outright, unlike an
+// earlier version of this file — ensureContrast nudges it just far enough
+// to clear this bar (see its own doc comment).
+const minTintedContrast = 3.0
+
+// truecolorFgEscape returns c's raw 24-bit truecolor foreground escape —
+// rendering a chroma style's own color directly rather than remapping it
+// onto a named ANSI slot (see baseSyntaxStyle's doc comment for why).
+func truecolorFgEscape(c chroma.Colour) string {
+	return fmt.Sprintf("\033[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
+}
+
+// ensureContrast returns seeking unchanged if it already clears
+// minTintedContrast against bg, otherwise nudges its OkLab lightness
+// (go-colorful's perceptually-uniform lightness/chroma/hue space, already
+// an indirect dependency via lipgloss) toward black or white — whichever
+// direction increases contrast against bg — in small steps until it clears
+// the bar. This replaces an earlier all-or-nothing design (a token's color
+// either passed a much lower bar completely unmodified, or got discarded
+// entirely for flat black/white): reported live as "some text is very low
+// contrast and very hard to read," measured directly — the real chroma
+// style's own colors routinely landed around 1.5-2.5 against rv's diff
+// tints, well under a real 4.5 AA bar. Nudging lightness instead keeps a
+// token recognizably its own hue for as long as the adjustment allows,
+// only converging on flat black/white at the extreme (lightness pushed all
+// the way to 0 or 1) — which happens automatically here rather than
+// needing a separate fallback path, since that's just where this loop
+// naturally bottoms out for a color that's already very desaturated.
+func ensureContrast(seeking, bg chroma.Colour) chroma.Colour {
+	if contrastRatio(seeking, bg) >= minTintedContrast {
+		return seeking
+	}
+	col := colorful.Color{R: float64(seeking.Red()) / 255, G: float64(seeking.Green()) / 255, B: float64(seeking.Blue()) / 255}
+	l, a, b := col.OkLab()
+	lighten := relativeLuminance(bg) <= 0.5 // dark bg: push toward white; light bg: push toward black
+	// Interpolates the WHOLE OkLab coordinate toward true white (l=1,
+	// a=0, b=0) or true black (l=0, a=0, b=0) as t goes 0→1 — not just
+	// lightness with a,b held fixed. Nudging lightness alone hits the
+	// sRGB gamut boundary well before white/black for any saturated
+	// color (a,b far from 0 isn't representable at the extremes of l),
+	// so Clamped() silently plateaus on a not-light/dark-enough color
+	// while l keeps climbing past 1 with no further visible effect —
+	// exactly the bug this fixes: a token stuck at a still-too-low
+	// contrast because pure lightness pushing had already gamut-capped.
+	// Shrinking a,b in step with l guarantees reaching true white/black
+	// at t=1, so a contrast target under the maximum possible (i.e. any
+	// realistic minTintedContrast against a bg that isn't itself already
+	// extreme) is always reachable.
+	for i := 1; i <= 50; i++ {
+		t := float64(i) / 50
+		l2 := l + t*(1-l)
+		if !lighten {
+			l2 = l - t*l
+		}
+		r, g, bl := colorful.OkLab(l2, a*(1-t), b*(1-t)).Clamped().RGB255()
+		cand := chroma.NewColour(r, g, bl)
+		if contrastRatio(cand, bg) >= minTintedContrast || t >= 1 {
+			return cand
+		}
+	}
+	return seeking // unreachable: t reaches 1 (true white/black) within the loop
+}
 
 // plainFormatter renders each token's foreground only — no background at
-// all, regardless of what the chroma style says — reducing colors to the
-// nearest of the basic 16 ANSI colors the same way tintedFormatter does,
-// with the same black/white contrast fallback tintedFormatter uses too
-// (see newPlainFormatter). This deliberately diverges from chroma's own
-// formatters.TTY16 (which plainFormatter otherwise mirrors): TTY16 also
-// honors a style entry's own Background, and monokai sets one on its
-// "Error" token type (a near-black box) — meant to flag a genuine lexer
-// error, but it fires here on perfectly valid code too, because rv
-// tokenizes one diff line at a time with no carried-over lexer state. A
-// line like a bare "*/" or a "*" continuation line of a block comment
-// reads as a syntax error in isolation and got tokenized as Error,
-// putting a stray black box around it. Since context lines should never
-// show anything but the terminal's own background anyway, the simplest
-// fix is to never emit a token background here at all.
+// all, regardless of what the chroma style says. This deliberately diverges
+// from chroma's own formatters.TTY16-style formatters, which also honor a
+// style entry's own Background — monokai sets one on its "Error" token
+// type (a near-black box) meant to flag a genuine lexer error, but it fires
+// here on perfectly valid code too, because rv tokenizes one diff line at a
+// time with no carried-over lexer state. A line like a bare "*/" or a "*"
+// continuation line of a block comment reads as a syntax error in
+// isolation and got tokenized as Error, putting a stray black box around
+// it. Since context lines should never show anything but the terminal's
+// own background anyway, the simplest fix is to never emit a token
+// background here at all.
 type plainFormatter struct {
 	// bg is a contrast REFERENCE only, standing in for "how light or dark
 	// is the terminal's real background" — never actually emitted as a
 	// background escape (see above). Without checking contrast against
-	// this at all (the bug this fixes), a color like bright cyan or
-	// bright yellow — picked because it reads well on a dark terminal,
-	// which nearestANSI16's own reference table implicitly assumes —
-	// stays exactly that color on a light terminal too, where it's nearly
-	// unreadable; reported directly against paraiso-dark's palette.
-	bg       chroma.Colour
-	fallback chroma.Colour
+	// this at all (the bug this fixes), a color tuned to read well on a
+	// dark background stays exactly that color on a light terminal too,
+	// where it's nearly unreadable; reported directly against
+	// paraiso-dark's palette.
+	bg chroma.Colour
 }
 
 func newPlainFormatter(bgHex string) *plainFormatter {
-	bg := chroma.MustParseColour(bgHex)
-	fallback := chroma.MustParseColour("#ffffff")
-	if relativeLuminance(bg) > 0.5 {
-		fallback = chroma.MustParseColour("#000000")
-	}
-	return &plainFormatter{bg: bg, fallback: fallback}
+	return &plainFormatter{bg: chroma.MustParseColour(bgHex)}
 }
 
 func (f *plainFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iterator) error {
@@ -460,11 +384,7 @@ func (f *plainFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iter
 			formatting += "\033[3m"
 		}
 		if entry.Colour.IsSet() {
-			fg := nearestHueContrasting(entry.Colour, f.bg)
-			if contrastRatio(fg, f.bg) < minTintedContrast {
-				fg = f.fallback
-			}
-			formatting += ansi16Or24(fg)
+			formatting += truecolorFgEscape(ensureContrast(entry.Colour, f.bg))
 		}
 		io.WriteString(w, formatting)
 		io.WriteString(w, token.Value)
@@ -473,34 +393,27 @@ func (f *plainFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Iter
 	return nil
 }
 
-// tintedFormatter renders each token's foreground reduced to the nearest of
-// the basic 16 ANSI colors (so it still follows the terminal theme, exactly
-// like formatters.TTY16) — unless that color's own reference hex has too
-// little contrast against this formatter's fixed background tint, in which
-// case it falls back to whichever of black/white contrasts better against
-// that tint. The background itself is paired in per-token, baked into every
-// single token's own escape sequence rather than applied as an outer wrap:
-// chroma resets (\033[0m) after every token, so an outer wrap would get
-// canceled by the first token's reset.
+// tintedFormatter renders each token's foreground as the chroma style's own
+// truecolor hex, contrast-repaired against this formatter's fixed
+// background tint (see ensureContrast) and paired per-token — baked into
+// every single token's own escape sequence rather than applied as an outer
+// wrap, since chroma resets (\033[0m) after every token, which would cancel
+// an outer wrap after the first one.
 type tintedFormatter struct {
 	bg             chroma.Colour
+	strongBg       chroma.Colour
 	bgEscape       string
 	strongBgEscape string
-	fallback       chroma.Colour
 }
 
 func newTintedFormatter(bgHex, strongBgHex string) *tintedFormatter {
 	bg := chroma.MustParseColour(bgHex)
 	strongBg := chroma.MustParseColour(strongBgHex)
-	fallback := chroma.MustParseColour("#ffffff")
-	if relativeLuminance(bg) > 0.5 {
-		fallback = chroma.MustParseColour("#000000")
-	}
 	return &tintedFormatter{
 		bg:             bg,
+		strongBg:       strongBg,
 		bgEscape:       fmt.Sprintf("\033[48;2;%d;%d;%dm", bg.Red(), bg.Green(), bg.Blue()),
 		strongBgEscape: fmt.Sprintf("\033[48;2;%d;%d;%dm", strongBg.Red(), strongBg.Green(), strongBg.Blue()),
-		fallback:       fallback,
 	}
 }
 
@@ -510,34 +423,40 @@ func (f *tintedFormatter) Format(w io.Writer, style *chroma.Style, it chroma.Ite
 
 // formatMasked is Format plus intraline highlighting: when mask marks a
 // token's runes (indexed by rune position within the overall token stream)
-// as changed, that run of the token gets strongBgEscape instead of
-// bgEscape, splitting the token's own write into sub-runs as needed. A nil
-// mask (the Format path) always takes the single-write fast path.
+// as changed, that run gets strongBgEscape instead of bgEscape, splitting
+// the token's own write into sub-runs as needed. Contrast is repaired
+// against whichever of bg/strongBg will actually render behind each
+// specific run — not just bg unconditionally — since a token's color can
+// read fine against the dim base tint but too poorly against the more
+// saturated strong wash used for the actual highlighted span (reported
+// live: a comma/token going near-illegible specifically inside the
+// stronger intraline-diff highlight, even though it read fine right next
+// to it on the same line's base tint). A nil mask (the Format path) always
+// takes the single-write fast path, using the base tint throughout.
 func (f *tintedFormatter) formatMasked(w io.Writer, style *chroma.Style, it chroma.Iterator, mask []bool) error {
 	pos := 0
 	for token := it(); token != chroma.EOF; token = it() {
 		entry := style.Get(token.Type)
-		formatting := ""
+		attrs := ""
 		if entry.Bold == chroma.Yes {
-			formatting += "\033[1m"
+			attrs += "\033[1m"
 		}
 		if entry.Underline == chroma.Yes {
-			formatting += "\033[4m"
+			attrs += "\033[4m"
 		}
 		if entry.Italic == chroma.Yes {
-			formatting += "\033[3m"
+			attrs += "\033[3m"
 		}
+		var fgNormal, fgStrong string
 		if entry.Colour.IsSet() {
-			fg := nearestHueContrasting(entry.Colour, f.bg)
-			if contrastRatio(fg, f.bg) < minTintedContrast {
-				fg = f.fallback
-			}
-			formatting += ansi16Or24(fg)
+			fgNormal = truecolorFgEscape(ensureContrast(entry.Colour, f.bg))
+			fgStrong = truecolorFgEscape(ensureContrast(entry.Colour, f.strongBg))
 		}
 
 		runes := []rune(token.Value)
 		if mask == nil {
-			io.WriteString(w, formatting)
+			io.WriteString(w, attrs)
+			io.WriteString(w, fgNormal)
 			io.WriteString(w, f.bgEscape)
 			io.WriteString(w, token.Value)
 			io.WriteString(w, "\033[0m")
@@ -550,10 +469,12 @@ func (f *tintedFormatter) formatMasked(w io.Writer, style *chroma.Style, it chro
 			for end < len(runes) && (pos+end < len(mask) && mask[pos+end]) == hl {
 				end++
 			}
-			io.WriteString(w, formatting)
+			io.WriteString(w, attrs)
 			if hl {
+				io.WriteString(w, fgStrong)
 				io.WriteString(w, f.strongBgEscape)
 			} else {
+				io.WriteString(w, fgNormal)
 				io.WriteString(w, f.bgEscape)
 			}
 			io.WriteString(w, string(runes[start:end]))
@@ -563,14 +484,4 @@ func (f *tintedFormatter) formatMasked(w io.Writer, style *chroma.Style, it chro
 		pos += len(runes)
 	}
 	return nil
-}
-
-// ansi16Or24 returns c's escape from the 16-color table if c is one of
-// those 16 canonical colors, otherwise (the black/white contrast fallback,
-// which isn't necessarily one of them) a truecolor escape for c directly.
-func ansi16Or24(c chroma.Colour) string {
-	if esc, ok := ansi16[c]; ok {
-		return esc
-	}
-	return fmt.Sprintf("\033[38;2;%d;%d;%dm", c.Red(), c.Green(), c.Blue())
 }

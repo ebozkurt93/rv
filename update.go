@@ -66,7 +66,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case backgroundPollMsg:
 		return m, tea.Batch(pollBackgroundColorCmd(), func() tea.Msg { return tea.RequestBackgroundColor() })
 	case tea.BackgroundColorMsg:
-		setBackgroundIsDark(msg.IsDark())
+		setBackgroundColor(msg)
 		return m, nil
 	case editorClosedMsg:
 		if msg.err != nil {

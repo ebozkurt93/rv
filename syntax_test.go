@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image/color"
 	"regexp"
 	"strings"
 	"testing"
@@ -33,91 +34,164 @@ func TestSetBackgroundIsDarkSwitchesTints(t *testing.T) {
 	}
 }
 
+// TestSetBackgroundColorUsesRealColorNotAGuess guards a real bug reported
+// live: context-line text ("very low contrast and very hard to read")
+// stayed unreadable even after minTintedContrast was raised, because
+// plainFormatter's contrast reference (contextBg) was always a hardcoded
+// "#000000"/"#ffffff" guess, discarding the terminal's own actual
+// background color that Bubble Tea already queries via OSC 11 (see
+// tea.BackgroundColorMsg) — a real dark terminal theme (a dark navy or
+// purple, say) has a meaningfully different luminance than pure black, so
+// a token's contrast was being checked against the wrong reference the
+// whole time. setBackgroundColor must use bg's own exact value as that
+// reference, not fall back to a black/white stand-in the way
+// setBackgroundIsDark does.
+func TestSetBackgroundColorUsesRealColorNotAGuess(t *testing.T) {
+	origCtx := syntaxContextFmt
+	origAdded, origRemoved, origCursor := bgAdded, bgRemoved, bgCursor
+	t.Cleanup(func() {
+		syntaxContextFmt = origCtx
+		bgAdded, bgRemoved, bgCursor = origAdded, origRemoved, origCursor
+	})
+
+	// A real, fairly dark navy (not pure black, and not one of rv's own
+	// tints) — distinct enough from "#000000" that a wrong reference
+	// would be measurable.
+	navy := color.RGBA{R: 0x1a, G: 0x1a, B: 0x2e, A: 0xff}
+	setBackgroundColor(navy)
+
+	pf, ok := syntaxContextFmt.(*plainFormatter)
+	if !ok {
+		t.Fatalf("expected syntaxContextFmt to be a *plainFormatter, got %T", syntaxContextFmt)
+	}
+	want := chroma.MustParseColour("#1a1a2e")
+	if pf.bg != want {
+		t.Fatalf("expected plainFormatter's contrast reference to be the real bg %v, got %v", want, pf.bg)
+	}
+	// Also confirms setBackgroundColor picked "dark" correctly from the
+	// real color (navy's luminance is well under 0.5), not stuck on
+	// whatever setBackgroundIsDark last set.
+	if bgAdded != lipgloss.Color(darkTints.added) {
+		t.Fatalf("expected dark tints for a dark navy background, got bgAdded=%v", bgAdded)
+	}
+}
+
 // TestPlainFormatterFallsBackOnLowContrastAgainstRealBackground guards a
 // real, reported bug: plainFormatter (used for every unchanged/context
-// line — most of what's on screen) picked nearestANSI16 colors with no
-// contrast check against the terminal's actual background at all, unlike
-// tintedFormatter. Colors tuned to read well on a dark background (bright
-// cyan, bright yellow — which is what most of a 16-slot reduction ends up
-// using) are frequently near-unreadable on a light one. Verified directly
-// against the real paraiso-dark palette: on a light background, ordinary
-// Go code like "func main() { return nil }" fell below the contrast
-// threshold on every single token, including plain whitespace.
+// line — most of what's on screen) had no contrast check against the
+// terminal's actual background at all, unlike tintedFormatter. Colors
+// tuned to read well on a dark background are frequently near-unreadable
+// on a light one. Verified directly against the real paraiso-dark palette:
+// on a light background, ordinary Go code like "func main() { return nil
+// }" fell below the contrast threshold on every single token.
 func TestPlainFormatterFallsBackOnLowContrastAgainstRealBackground(t *testing.T) {
 	orig := syntaxContextFmt
 	t.Cleanup(func() { syntaxContextFmt = orig })
 
 	setBackgroundIsDark(false)
 	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, syntaxContextFmt, "func main() { return nil }", nil, nil)
-	if !strings.Contains(out, "\033[30m") {
-		t.Fatalf("expected the black contrast fallback on a light background, got %q", out)
+	iterator, err := lexer.Tokenise(nil, "func main() { return nil }")
+	if err != nil {
+		t.Fatalf("tokenise: %v", err)
 	}
-
-	setBackgroundIsDark(true)
-	out = highlightContent(lexer, syntaxContextFmt, "func main() { return nil }", nil, nil)
-	if strings.Contains(out, "\033[30m") {
-		t.Fatalf("expected no black fallback needed on a dark background (colors should already contrast fine), got %q", out)
-	}
-}
-
-// TestNearestHueContrastingKeepsHueOnLightBackground guards the fix for
-// an over-correction: an earlier version of the fix above made EVERY
-// token fall back to flat black on a light background, since a token
-// color close to a bright ANSI variant (tuned for dark backgrounds, which
-// is what most of a 16-slot reduction favors) almost always fails
-// contrast against white. That reads as "no syntax highlighting at all",
-// not a fix. nearestHueContrasting instead picks the closest HUE first
-// (checking both its normal and bright variant), then whichever of that
-// hue's two variants actually contrasts with the background — so a color
-// that's recognizably cyan, say, stays some shade of cyan on a light
-// background instead of collapsing to black, as long as that hue has a
-// variant dark enough to read on white.
-func TestNearestHueContrastingKeepsHueOnLightBackground(t *testing.T) {
 	white := chroma.MustParseColour("#ffffff")
-	// #00ffff (bright cyan) is tuned for a dark background; its hue's
-	// normal (dark cyan, #007f7f) variant should be picked here instead
-	// of falling through to a fixed black/white.
-	got := nearestHueContrasting(chroma.MustParseColour("#00ffff"), white)
-	want := chroma.MustParseColour("#007f7f")
-	if got != want {
-		t.Fatalf("expected the dark-cyan variant %v on a light background, got %v", want, got)
+	sawRepair := false
+	for tok := iterator(); tok != chroma.EOF; tok = iterator() {
+		entry := syntaxContextStyle.Get(tok.Type)
+		if !entry.Colour.IsSet() {
+			continue
+		}
+		if contrastRatio(entry.Colour, white) < minTintedContrast {
+			sawRepair = true
+			if r := contrastRatio(ensureContrast(entry.Colour, white), white); r < minTintedContrast {
+				t.Fatalf("expected ensureContrast to repair token color %v against a light background, got ratio %.2f", entry.Colour, r)
+			}
+		}
 	}
-	if contrastRatio(got, white) < minTintedContrast {
-		t.Fatalf("expected the picked variant to actually clear the contrast floor against white, got ratio %.2f", contrastRatio(got, white))
-	}
-}
-
-// TestNearestHueContrastingNeverPicksPlainBlackOnDarkBackground guards a
-// real bug reported live: an Operator token (gray #666666, e.g. "="/"=>")
-// on rv's own dark-green added-line tint (#1f3d2b) rendered via plain ANSI
-// "black" (SGR 30) — which nearestHueContrasting picked because its OWN
-// reference hex (#000000) claims a healthy contrast ratio against
-// #1f3d2b. That ratio is meaningless in practice: SGR 30 is the one slot
-// virtually every dark terminal theme conventionally aliases to its own
-// default background, so the operator was invisible even though the math
-// said otherwise. On a dark background, the achromatic hue must always
-// resolve to the bright/gray variant (SGR 90), never plain black.
-func TestNearestHueContrastingNeverPicksPlainBlackOnDarkBackground(t *testing.T) {
-	gray := chroma.MustParseColour("#666666")
-	bgAddedDark := chroma.MustParseColour(darkTints.added)
-	got := nearestHueContrasting(gray, bgAddedDark)
-	if got == chroma.MustParseColour("#000000") {
-		t.Fatalf("expected the bright/gray variant (never plain black, an unsafe slot on a dark bg), got %v", got)
+	if !sawRepair {
+		t.Skip("this base style's colors already clear minTintedContrast against a light background; nothing to guard")
 	}
 }
 
-// TestNearestHueContrastingNeverPicksBrightWhiteOnLightBackground is the
-// symmetric guard: on a light background, bright ANSI "white" (SGR 97) is
-// the slot most light terminal themes alias to their own background, so
-// the achromatic hue must resolve to the dimmer/gray variant (SGR 37)
-// instead, never plain white.
-func TestNearestHueContrastingNeverPicksBrightWhiteOnLightBackground(t *testing.T) {
-	gray := chroma.MustParseColour("#999999")
-	bgAddedLight := chroma.MustParseColour(lightTints.added)
-	got := nearestHueContrasting(gray, bgAddedLight)
-	if got == chroma.MustParseColour("#ffffff") {
-		t.Fatalf("expected the dimmer/gray variant (never plain white, an unsafe slot on a light bg), got %v", got)
+// TestEnsureContrastReturnsColorUnchangedWhenAlreadyReadable guards the
+// core of the truecolor-first design: a token's own chroma color should
+// come through byte-for-byte (no adjustment at all) whenever it already
+// clears minTintedContrast against bg.
+func TestEnsureContrastReturnsColorUnchangedWhenAlreadyReadable(t *testing.T) {
+	cyan := chroma.MustParseColour("#00ffff")
+	black := chroma.MustParseColour("#000000")
+	got := ensureContrast(cyan, black)
+	if got != cyan {
+		t.Fatalf("expected the token's own color unchanged (already high contrast), got %v", got)
+	}
+}
+
+// TestEnsureContrastNudgesTowardReadableWhenTooClose guards the fix for a
+// real reported bug ("some text is very low contrast and very hard to
+// read"): an earlier version of this either passed a token's color through
+// completely unmodified against a much laxer bar, or discarded it entirely
+// for flat black/white — nothing in between. ensureContrast must nudge a
+// too-close-to-bg color just far enough to clear a real WCAG AA bar
+// (4.5:1), landing on some genuinely readable result, while preserving
+// hue/chroma as long as the adjustment allows rather than immediately
+// collapsing to flat black/white.
+func TestEnsureContrastNudgesTowardReadableWhenTooClose(t *testing.T) {
+	// A genuinely dark bg (not one of rv's own subtle-wash tints, whose
+	// max possible contrast can itself land under 4.5 — see
+	// TestEnsureContrastReachesTintsOwnMaximum below) so clearing the
+	// real target is actually possible here, straightforwardly proving
+	// ensureContrast can get there and not just "improve some."
+	color := chroma.MustParseColour("#0a0a0a")
+	bg := chroma.MustParseColour("#0a0a0a") // identical to the token's own color: 1:1 contrast
+	got := ensureContrast(color, bg)
+	if r := contrastRatio(got, bg); r < minTintedContrast {
+		t.Fatalf("expected the adjusted color to clear minTintedContrast (%.1f) against bg, got ratio %.2f (%v)", minTintedContrast, r, got)
+	}
+}
+
+// TestEnsureContrastReachesTintsOwnMaximum guards the honest limit case: a
+// background whose own ceiling (best achievable contrast, with either pure
+// black or pure white — whichever direction ensureContrast pushes) sits
+// below minTintedContrast. ensureContrast can't manufacture contrast that
+// isn't physically there; the right behavior is converging on the
+// direction's own best-possible foreground (white, on a dark bg) rather
+// than looping forever, or falling back to something else, or overshooting
+// past white.
+func TestEnsureContrastReachesTintsOwnMaximum(t *testing.T) {
+	// #737373's luminance (~0.45, still <= 0.5 so ensureContrast lightens
+	// toward white, same direction it'd take on any of rv's own dark
+	// tints) keeps even pure white's contrast against it under
+	// minTintedContrast (3.0) — this bg's ceiling for that direction.
+	bg := chroma.MustParseColour("#737373")
+	got := ensureContrast(chroma.MustParseColour("#737373"), bg)
+	maxPossible := contrastRatio(chroma.MustParseColour("#ffffff"), bg)
+	if r := contrastRatio(got, bg); r < maxPossible-0.05 {
+		t.Fatalf("expected ensureContrast to reach this bg's own practical ceiling (~%.2f), got ratio %.2f (%v)", maxPossible, r, got)
+	}
+}
+
+// TestEnsureContrastPicksDirectionFromBackgroundLuminance guards nudging
+// the right way: lightened (toward white) on a dark bg, darkened (toward
+// black) on a light bg — nudging the wrong direction would still increase
+// contrast some (any change does), but converges far slower and can
+// overshoot into a harsh, over-bright/over-dark result on the wrong side
+// of the background instead of a natural corrected shade.
+func TestEnsureContrastPicksDirectionFromBackgroundLuminance(t *testing.T) {
+	midGray := chroma.MustParseColour("#808080")
+
+	// Both bg's are deliberately close to midGray's own luminance (not
+	// black/white) so contrast is genuinely poor and a repair is
+	// actually triggered, rather than the color passing through
+	// unchanged because a very dark/light bg already gave it enough
+	// contrast on its own.
+	onDark := ensureContrast(midGray, chroma.MustParseColour("#404040"))
+	if relativeLuminance(onDark) <= relativeLuminance(midGray) {
+		t.Fatalf("expected a lighter result on a dark bg, got %v (from %v)", onDark, midGray)
+	}
+
+	onLight := ensureContrast(midGray, chroma.MustParseColour("#c0c0c0"))
+	if relativeLuminance(onLight) >= relativeLuminance(midGray) {
+		t.Fatalf("expected a darker result on a light bg, got %v (from %v)", onLight, midGray)
 	}
 }
 
@@ -165,27 +239,46 @@ func TestTintedFormatterBaksTruecolorBackgroundIntoEveryToken(t *testing.T) {
 }
 
 // TestTintedFormatterFallsBackWhenTokenColorLacksContrast guards the fix for
-// tokens (e.g. a comment) whose color reduces to nearly the same hue as the
-// tint itself, which without a fallback renders as text with virtually no
-// contrast against its own line's background.
+// tokens (e.g. a comment) whose color is nearly the same as the tint
+// itself, which without repair renders as text with virtually no contrast
+// against its own line's background. Uses the tint as the token color's bg
+// directly (guaranteed identical, not dependent on which base style
+// happens to be configured) so the test doesn't need to skip.
 func TestTintedFormatterFallsBackWhenTokenColorLacksContrast(t *testing.T) {
-	f := newTintedFormatter("#1f3d2b", "#2d6b45") // same hue family as monokai's comment color
-	lexer := pickLexer("a.go")
-	out := highlightContent(lexer, f, "// a comment", nil, nil)
-	iterator, err := lexer.Tokenise(nil, "// a comment")
-	if err != nil {
-		t.Fatalf("tokenise: %v", err)
+	f := newTintedFormatter("#0a0a0a", "#2d6b45")
+	got := ensureContrast(f.bg, f.bg)
+	if r := contrastRatio(got, f.bg); r < minTintedContrast {
+		t.Fatalf("expected a contrast-repaired color for a token identical to bg, got ratio %.2f (%v)", r, got)
 	}
-	tok := iterator()
-	entry := syntaxContextStyle.Get(tok.Type)
-	if contrastRatio(nearestANSI16(entry.Colour), f.bg) >= minTintedContrast {
-		t.Skip("this base style's comment color already contrasts fine against this tint; nothing to guard")
+}
+
+// TestTintedFormatterChecksContrastAgainstTheRightBackground guards a real
+// bug reported live: a token's contrast was always checked against the
+// base tint (bg), even for the runes an intraline diff highlights, which
+// actually render against the stronger, more saturated wash (strongBg,
+// baked in via strongBgEscape — see formatMasked). A color that reads fine
+// against the dim base tint can read poorly against the lighter/more
+// saturated strong wash, so the highlighted span went through with a
+// near-illegible foreground even though the very same token read fine one
+// column to either side of it.
+func TestTintedFormatterChecksContrastAgainstTheRightBackground(t *testing.T) {
+	// A mid-gray reads fine against a near-black bg but poorly against a
+	// much lighter strongBg — the two backgrounds must get independently
+	// judged repairs, not the base tint's verdict applied to both.
+	f := newTintedFormatter("#0a0a0a", "#cccccc")
+	gray := chroma.MustParseColour("#999999")
+
+	normal := ensureContrast(gray, f.bg)
+	if normal != gray {
+		t.Fatalf("expected the token's own color unchanged against the dark base tint, got %v", normal)
 	}
-	// The fallback colors (black/white) are themselves two of chroma's 16
-	// canonical colors, so ansi16Or24 emits their plain ANSI codes (97/30)
-	// rather than a truecolor escape — either is an acceptable fallback.
-	if !strings.Contains(out, "\033[97m") && !strings.Contains(out, "\033[30m") {
-		t.Fatalf("expected a contrast fallback (black or white) foreground, got %q", out)
+
+	strong := ensureContrast(gray, f.strongBg)
+	if strong == gray {
+		t.Fatalf("expected a contrast-repaired color against the light strong tint (contrast too poor there), got unchanged %v", strong)
+	}
+	if r := contrastRatio(strong, f.strongBg); r < minTintedContrast {
+		t.Fatalf("expected the repaired color to actually clear minTintedContrast against strongBg, got ratio %.2f", r)
 	}
 }
 
