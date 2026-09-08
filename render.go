@@ -669,11 +669,11 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 				continue
 			}
 			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
-				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, commentBarPad(true))
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, collapsedCommentBarPad())
 				continue
 			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
-				appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
+				appendText(l, i, false, commentIndentWidth, commentBarPad(authorColor(c.Author), c.Resolved))
 			}
 			composingReplyHere := m.mode == modeComment && i == m.lineIndex && m.replyingToCommentID == c.ID
 			for ri, r := range c.Replies {
@@ -682,7 +682,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 				}
 				last := ri == len(c.Replies)-1 && !composingReplyHere
 				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
-					appendText(l, i, false, commentIndentWidth, replyBarPad(c.Resolved, last))
+					appendText(l, i, false, commentIndentWidth, replyBarPad(authorColor(r.Author), c.Resolved, last))
 				}
 			}
 		}
@@ -906,11 +906,11 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				continue
 			}
 			if !m.isCommentExpanded(c.Comment) && !m.commentBeingEdited(c.Comment) {
-				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, commentBarPad(true))
+				appendText(renderCollapsedComment(c.Comment, c.Stale), i, false, commentIndentWidth, collapsedCommentBarPad())
 				continue
 			}
 			for _, l := range strings.Split(renderComment(c.Comment, c.Stale), "\n") {
-				appendText(l, i, false, commentIndentWidth, commentBarPad(c.Resolved))
+				appendText(l, i, false, commentIndentWidth, commentBarPad(authorColor(c.Author), c.Resolved))
 			}
 			// A new reply being composed for this exact comment renders
 			// below its existing replies (see the editor block right after
@@ -927,7 +927,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 				}
 				last := ri == len(c.Replies)-1 && !composingReplyHere
 				for _, l := range strings.Split(renderReply(r, c.Resolved, last), "\n") {
-					appendText(l, i, false, commentIndentWidth, replyBarPad(c.Resolved, last))
+					appendText(l, i, false, commentIndentWidth, replyBarPad(authorColor(r.Author), c.Resolved, last))
 				}
 			}
 		}
@@ -1041,16 +1041,24 @@ func wrapLineIndented(s string, width, indent int, pad string) []string {
 }
 
 // commentBarPad is the styled "│" continuation bar used to re-prefix any
-// wrapped-too-long comment/reply line (see wrapLineIndented) — resolved
-// picks styleResolved to match a resolved thread's muted color, exactly
-// like renderComment/renderReply/renderCollapsedComment already do for
-// their own prefixes.
-func commentBarPad(resolved bool) string {
-	style := styleComment
-	if resolved {
-		style = styleResolved
-	}
+// wrapped-too-long comment/reply line (see wrapLineIndented) — colored to
+// match the same authorCol renderComment/renderReply used for their own
+// prefixes (see commentStyles), so a wrapped-continuation bar never
+// mismatches the thread's own author color.
+func commentBarPad(authorCol color.Color, resolved bool) string {
+	style, _ := commentStyles(authorCol, resolved)
 	return style.Render("  │  ")
+}
+
+// collapsedCommentBarPad is commentBarPad's counterpart for
+// renderCollapsedComment specifically: that renderer flattens its entire
+// line — author and all — to styleResolved's plain muted gray rather than
+// commentStyles' author-hued/Faint treatment (a collapsed comment is only
+// ever shown once its thread is resolved), so its own wrap-continuation bar
+// must match THAT flat gray, not the author's color, or the two would
+// mismatch just as badly as the bug this whole author-color fix was for.
+func collapsedCommentBarPad() string {
+	return styleResolved.Render("  │  ")
 }
 
 // replyBarPad is commentBarPad's reply-specific counterpart: a reply's own
@@ -1059,11 +1067,11 @@ func commentBarPad(resolved bool) string {
 // ("├" has a stroke continuing down), blank for the last one ("└"
 // terminates in its own glyph, so a bar directly beneath it reads as
 // disconnected rather than continuing it).
-func replyBarPad(resolved, last bool) string {
+func replyBarPad(authorCol color.Color, resolved, last bool) string {
 	if last {
 		return "     "
 	}
-	return commentBarPad(resolved)
+	return commentBarPad(authorCol, resolved)
 }
 
 // helpRow is one line of the ? overlay: either a section header

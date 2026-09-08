@@ -279,6 +279,132 @@ func TestWrappedCommentReplyStaysAlignedUnderConnector(t *testing.T) {
 	}
 }
 
+// commentConnectorColorCode returns the raw SGR escape sequence (e.g.
+// "\x1b[38;2;...m") immediately governing the "│"/"├"/"└" connector rune in
+// s, so a test can compare it against another row's connector color without
+// caring what color it actually resolves to.
+func commentConnectorColorCode(s string) string {
+	idx := strings.IndexAny(s, "│├└")
+	if idx < 0 {
+		return ""
+	}
+	seqs := regexp.MustCompile(`\x1b\[[0-9;]*m`).FindAllString(s[:idx], -1)
+	if len(seqs) == 0 {
+		return ""
+	}
+	return seqs[len(seqs)-1]
+}
+
+// TestWrappedCommentConnectorMatchesAuthorColor guards the bug reported
+// live: a wrapped-too-long comment/reply body's own first physical line is
+// colored via commentStyles(authorColor(...), ...) (see renderComment/
+// renderReply), but the pad re-prefixing every WRAPPED continuation line
+// (see wrapLineIndented) used to be built by commentBarPad/replyBarPad with
+// no author color at all — always styleComment's fixed yellow (or
+// styleResolved's gray) — so any author other than "user" (which happens to
+// already sit on that same yellow) showed its first line in its own hue but
+// every wrapped continuation's bar reverted to yellow/gray, a visible
+// mismatch. The continuation bar must carry the exact same color as the
+// thread's own first-line connector.
+func TestWrappedCommentConnectorMatchesAuthorColor(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	longBody := "This is a deliberately very long single reply line meant to force word-wrapping across several physical rows once it exceeds the diff pane's available width."
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "user", Body: "short",
+			Replies: []Reply{
+				// Not the last reply — a last reply's wrap continuation is
+				// deliberately blank (see renderReply's own doc comment), so
+				// it carries no connector color to compare at all. A second,
+				// short reply after it keeps this one "├─" instead of "└─".
+				{ID: "r1", Body: longBody, Author: "someone-else"},
+				{ID: "r2", Body: "ok", Author: "user"},
+			}},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.wrapLines = true
+
+	lines, _, _, mainLine := m.buildDiffLinesDetailed(40)
+	var replyRows []string
+	inReply := false
+	for i, l := range lines {
+		if strings.Contains(ansi.Strip(l), "someone-else:") {
+			inReply = true
+		} else if mainLine[i] || strings.TrimSpace(ansi.Strip(l)) == "" || strings.Contains(ansi.Strip(l), "user: ok") {
+			inReply = false
+		}
+		if inReply {
+			replyRows = append(replyRows, l)
+		}
+	}
+	if len(replyRows) < 2 {
+		t.Fatalf("expected the long reply to wrap into multiple rows at width 40, got %d", len(replyRows))
+	}
+	want := commentConnectorColorCode(replyRows[0])
+	if want == "" {
+		t.Fatalf("expected the reply's first row to carry a connector color: %q", replyRows[0])
+	}
+	for _, row := range replyRows[1:] {
+		if got := commentConnectorColorCode(row); got != want {
+			t.Fatalf("expected wrapped continuation's connector color %q to match first row's %q, got %q", want, want, got)
+		}
+	}
+}
+
+// TestWrappedCollapsedCommentConnectorMatchesFlatGray guards the mismatch
+// this fix's own author-colored bar introduced for a COLLAPSED comment
+// specifically: renderCollapsedComment flattens its entire one-line summary
+// (author included) to styleResolved's plain muted gray, since a comment
+// only ever collapses once its thread is resolved (see isCommentExpanded) —
+// it never uses the author's hue at all, unlike renderComment/renderReply.
+// So collapsedCommentBarPad must match THAT flat gray for a wrapped
+// continuation, not authorColor (which would reintroduce the same kind of
+// bar/first-line mismatch this whole fix exists to remove, just the other
+// way around).
+func TestWrappedCollapsedCommentConnectorMatchesFlatGray(t *testing.T) {
+	withTempHome(t)
+	n := 1
+	fd := FileDiff{Path: "a.go", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: []Line{
+		{Kind: LineContext, Content: "x", OldLine: &n, NewLine: &n},
+	}}}}
+	longBody := "This is a deliberately very long single comment line meant to force word-wrapping across several physical rows once it exceeds the diff pane's available width."
+	sess := Session{Comments: []Comment{
+		{ID: "c1", File: "a.go", NewLine: &n, LineContent: "x", Author: "someone-else",
+			Body: longBody, Resolved: true},
+	}}
+	m := newModel("/repo", []FileDiff{fd}, sess, nil)
+	m.wrapLines = true
+
+	lines, _, _, mainLine := m.buildDiffLinesDetailed(40)
+	var rows []string
+	inComment := false
+	for i, l := range lines {
+		if strings.Contains(ansi.Strip(l), "someone-else:") {
+			inComment = true
+		} else if mainLine[i] || strings.TrimSpace(ansi.Strip(l)) == "" {
+			inComment = false
+		}
+		if inComment {
+			rows = append(rows, l)
+		}
+	}
+	if len(rows) < 2 {
+		t.Fatalf("expected the long collapsed comment to wrap into multiple rows at width 40, got %d", len(rows))
+	}
+	want := commentConnectorColorCode(rows[0])
+	if want == "" {
+		t.Fatalf("expected the collapsed comment's first row to carry a connector color: %q", rows[0])
+	}
+	for _, row := range rows[1:] {
+		if got := commentConnectorColorCode(row); got != want {
+			t.Fatalf("expected wrapped continuation's connector color %q to match first row's %q, got %q", want, want, got)
+		}
+	}
+}
+
 // TestAuthorColorIsStableAndDistinguishesGroups guards "user" keeping its
 // original yellow and any other author (including a custom --author name)
 // getting a stable, different color.
