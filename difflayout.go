@@ -67,10 +67,10 @@ func clampDiffScroll(scroll, height int) int {
 // on the cursor's own row (see commentActionForCurrentLine), so mode/
 // lineIndex/editing state isn't part of the key — that would invalidate
 // every row's height on every keystroke, not just the cursor row's.
-func (m model) currentDiffLayout(fr fileRows, byRow map[int][]rowComment, width int) *diffLayout {
+func (m model) currentDiffLayout(fr fileRows, byRow map[int][]rowComment, width int) diffLayout {
 	key := diffLayoutKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.commentExpanded)
-	if m.layoutCache != nil && m.layoutCache.key == key {
-		return m.layoutCache
+	if cached, ok := m.layoutCache[fr.hash]; ok && cached.key == key {
+		return cached
 	}
 
 	rows := fr.rows
@@ -81,10 +81,8 @@ func (m model) currentDiffLayout(fr fileRows, byRow map[int][]rowComment, width 
 		offsets[i+1] = offsets[i] + heights[i]
 	}
 
-	layout := &diffLayout{key: key, heights: heights, offsets: offsets}
-	if m.layoutCache != nil {
-		*m.layoutCache = *layout
-	}
+	layout := diffLayout{key: key, heights: heights, offsets: offsets}
+	m.layoutCache[fr.hash] = layout
 	return layout
 }
 
@@ -176,10 +174,10 @@ func multilineWrapCount(text string, width int, wrapLines bool) int {
 
 // currentSplitDiffLayout is currentDiffLayout's split-view counterpart —
 // a content row's height is the taller of its two sides.
-func (m model) currentSplitDiffLayout(fr fileRows, byRow map[int][]rowComment, width int) *diffLayout {
+func (m model) currentSplitDiffLayout(fr fileRows, byRow map[int][]rowComment, width int) diffLayout {
 	key := diffLayoutKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.commentExpanded)
-	if m.splitLayoutCache != nil && m.splitLayoutCache.key == key {
-		return m.splitLayoutCache
+	if cached, ok := m.splitLayoutCache[fr.hash]; ok && cached.key == key {
+		return cached
 	}
 
 	leftW, rightW := splitColumnWidths(width)
@@ -191,10 +189,8 @@ func (m model) currentSplitDiffLayout(fr fileRows, byRow map[int][]rowComment, w
 		offsets[i+1] = offsets[i] + heights[i]
 	}
 
-	layout := &diffLayout{key: key, heights: heights, offsets: offsets}
-	if m.splitLayoutCache != nil {
-		*m.splitLayoutCache = *layout
-	}
+	layout := diffLayout{key: key, heights: heights, offsets: offsets}
+	m.splitLayoutCache[fr.hash] = layout
 	return layout
 }
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // fileDiffWithVariedLines builds n lines, some long enough to force
@@ -43,11 +45,13 @@ func TestWindowedRenderMatchesFullRender(t *testing.T) {
 					width := 60
 
 					diffRenderMarginRows = 5
-					m.layoutCache = &diffLayout{}
+					m.layoutCache = map[string]diffLayout{}
+					m.diffLinesCache = map[string]diffLinesCache{}
 					wLines, wCursor, wRowFor, _ := m.buildDiffLinesDetailed(width)
 
 					diffRenderMarginRows = 100000
-					m.layoutCache = &diffLayout{}
+					m.layoutCache = map[string]diffLayout{}
+					m.diffLinesCache = map[string]diffLinesCache{}
 					fLines, fCursor, fRowFor, _ := m.buildDiffLinesDetailed(width)
 
 					if len(wLines) != len(fLines) {
@@ -96,11 +100,13 @@ func TestWindowedRenderAccountsForOffscreenComments(t *testing.T) {
 	width := 60
 
 	diffRenderMarginRows = 5
-	m.layoutCache = &diffLayout{}
+	m.layoutCache = map[string]diffLayout{}
+	m.diffLinesCache = map[string]diffLinesCache{}
 	wLines, wCursor, _, _ := m.buildDiffLinesDetailed(width)
 
 	diffRenderMarginRows = 100000
-	m.layoutCache = &diffLayout{}
+	m.layoutCache = map[string]diffLayout{}
+	m.diffLinesCache = map[string]diffLinesCache{}
 	fLines, fCursor, _, _ := m.buildDiffLinesDetailed(width)
 
 	if len(wLines) != len(fLines) {
@@ -127,11 +133,13 @@ func TestWindowedRenderDuringCommentEditing(t *testing.T) {
 	width := 60
 
 	diffRenderMarginRows = 5
-	m.layoutCache = &diffLayout{}
+	m.layoutCache = map[string]diffLayout{}
+	m.diffLinesCache = map[string]diffLinesCache{}
 	wLines, wCursor, _, _ := m.buildDiffLinesDetailed(width)
 
 	diffRenderMarginRows = 100000
-	m.layoutCache = &diffLayout{}
+	m.layoutCache = map[string]diffLayout{}
+	m.diffLinesCache = map[string]diffLinesCache{}
 	fLines, fCursor, _, _ := m.buildDiffLinesDetailed(width)
 
 	if len(wLines) != len(fLines) {
@@ -186,13 +194,13 @@ func TestWindowedSplitRenderMatchesFullRender(t *testing.T) {
 				width := 80
 
 				diffRenderMarginRows = 5
-				m.splitLayoutCache = &diffLayout{}
-				m.splitLinesCache = &diffLinesCache{}
+				m.splitLayoutCache = map[string]diffLayout{}
+				m.splitLinesCache = map[string]diffLinesCache{}
 				wLines, wCursor, wRowFor, _ := m.buildSplitDiffLines(width)
 
 				diffRenderMarginRows = 100000
-				m.splitLayoutCache = &diffLayout{}
-				m.splitLinesCache = &diffLinesCache{}
+				m.splitLayoutCache = map[string]diffLayout{}
+				m.splitLinesCache = map[string]diffLinesCache{}
 				fLines, fCursor, fRowFor, _ := m.buildSplitDiffLines(width)
 
 				if len(wLines) != len(fLines) {
@@ -257,5 +265,50 @@ func TestClampDiffScrollStaysWithinRenderedMargin(t *testing.T) {
 	}
 	if got := clampDiffScroll(5, height); got != 5 {
 		t.Errorf("expected a small in-range scroll to pass through unchanged, got %d", got)
+	}
+}
+
+func TestCapUnstyledLengthLeavesShortContentAlone(t *testing.T) {
+	s := "short line"
+	if got := capUnstyledLength(s, 40); got != s {
+		t.Errorf("expected short content unchanged, got %q", got)
+	}
+}
+
+func TestCapUnstyledLengthSlicesLongPlainContent(t *testing.T) {
+	s := strings.Repeat("a", 100000)
+	got := capUnstyledLength(s, 40)
+	if len(got) >= len(s) {
+		t.Fatalf("expected long plain content to be sliced shorter, got len %d", len(got))
+	}
+	if len(got) < 40 {
+		t.Fatalf("expected sliced content to still cover the requested width, got len %d", len(got))
+	}
+}
+
+// TestCapUnstyledLengthLeavesStyledContentAlone guards against slicing
+// through the bytes of an ANSI escape sequence itself — here one starts a
+// few bytes before the cut point, so a naive byte-slice would corrupt it.
+func TestCapUnstyledLengthLeavesStyledContentAlone(t *testing.T) {
+	width := 40
+	limit := width * 8
+	s := strings.Repeat("a", limit-5) + "\x1b[38;2;255;0;0m" + strings.Repeat("a", 100000)
+	if got := capUnstyledLength(s, width); got != s {
+		t.Error("expected content with an ANSI code straddling the cut point to be left unchanged")
+	}
+}
+
+// TestFitLineMatchesUncappedForLongPlainLine proves capUnstyledLength's
+// shortcut in fitLine doesn't change fitLine's actual output for a long
+// plain line — same truncated/padded result, just without measuring the
+// whole thing.
+func TestFitLineMatchesUncappedForLongPlainLine(t *testing.T) {
+	long := strings.Repeat("ab", 60000)
+	want := ansi.Truncate(long, 40, "…")
+	if w := ansi.StringWidth(want); w < 40 {
+		want += strings.Repeat(" ", 40-w)
+	}
+	if got := fitLine(long, 40); got != want {
+		t.Errorf("fitLine result changed by the cap:\n got:  %q\n want: %q", got, want)
 	}
 }

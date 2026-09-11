@@ -58,21 +58,44 @@ type fileRows struct {
 	// hash is fileDiffHash(file), computed once — fileDiffHash walks every
 	// line of every hunk, too expensive to redo on every cache-key build.
 	hash string
+
+	// hunkRowStart/hunkSplitRowStart: hunk i's header row index into
+	// rows/splitRows, plus a final len(rows)/len(splitRows) sentinel. Used
+	// by ensureHunkTokenized to lazily tokenize a hunk on first visibility;
+	// tokenizedHunks tracks which ones are done.
+	hunkRowStart      []int
+	hunkSplitRowStart []int
+	tokenizedHunks    []bool
+
+	// rowRenderCache/splitLeft/RightRenderCache cache each non-cursor row's
+	// rendered physical lines (see cachedRowLines/cachedSplitSideLines), so
+	// a cursor move only re-renders the row gaining/losing the cursor.
+	rowRenderCache        []rowRenderCacheEntry
+	splitLeftRenderCache  []rowRenderCacheEntry
+	splitRightRenderCache []rowRenderCacheEntry
+}
+
+// rowRenderKey is a row-cache validity key, checked per row per render —
+// a plain comparable struct rather than a formatted string.
+type rowRenderKey struct {
+	width       int
+	wrapLines   bool
+	showNumbers bool
+}
+
+type rowRenderCacheEntry struct {
+	key   rowRenderKey
+	lines []string
 }
 
 func flattenFile(fd FileDiff) fileRows {
 	lexer := pickLexer(fd.Path)
-	// Tokenized per hunk (each side as one contiguous block) before any of
-	// fd.Hunks' Lines get copied into rows below — see applySyntaxTokens's
-	// doc comment for why tokenizing a whole block beats tokenizing each
-	// line alone.
-	for i := range fd.Hunks {
-		applySyntaxTokens(&fd.Hunks[i], lexer)
-	}
 
 	fr := fileRows{file: fd, lexer: lexer, hash: fileDiffHash(fd)}
 	maxNum := 0
+	fr.hunkRowStart = make([]int, 0, len(fd.Hunks)+1)
 	for _, h := range fd.Hunks {
+		fr.hunkRowStart = append(fr.hunkRowStart, len(fr.rows))
 		fr.rows = append(fr.rows, diffRow{kind: rowHunkHeader, hunkHeader: h.Header})
 		for _, l := range h.Lines {
 			fr.rows = append(fr.rows, diffRow{kind: rowLine, line: l})
@@ -84,11 +107,17 @@ func flattenFile(fd FileDiff) fileRows {
 			}
 		}
 	}
+	fr.hunkRowStart = append(fr.hunkRowStart, len(fr.rows))
+	fr.tokenizedHunks = make([]bool, len(fd.Hunks))
+	fr.rowRenderCache = make([]rowRenderCacheEntry, len(fr.rows))
+
 	fr.numWidth = len(strconv.Itoa(maxNum))
 	if fr.numWidth < 1 {
 		fr.numWidth = 1
 	}
-	fr.splitRows = flattenFileSplit(fd)
+	fr.splitRows, fr.hunkSplitRowStart = flattenFileSplitWithBounds(fd)
+	fr.splitLeftRenderCache = make([]rowRenderCacheEntry, len(fr.splitRows))
+	fr.splitRightRenderCache = make([]rowRenderCacheEntry, len(fr.splitRows))
 	return fr
 }
 
@@ -183,13 +212,13 @@ type model struct {
 
 	// layoutCache/splitLayoutCache cache the cheap per-row height pass (see
 	// difflayout.go); diffLinesCache/splitLinesCache cache the full
-	// rendered output, reused when a render is triggered by something
-	// unrelated (e.g. the background session poll). Pointer fields so they
-	// survive View()'s value receiver.
-	layoutCache      *diffLayout
-	splitLayoutCache *diffLayout
-	diffLinesCache   *diffLinesCache
-	splitLinesCache  *diffLinesCache
+	// rendered output. Keyed by file hash, one slot per file — a single
+	// global slot would get evicted on every file switch, forcing a full
+	// recompute each time a file is revisited (e.g. holding Tab).
+	layoutCache      map[string]diffLayout
+	splitLayoutCache map[string]diffLayout
+	diffLinesCache   map[string]diffLinesCache
+	splitLinesCache  map[string]diffLinesCache
 
 	// flattenCache memoizes flattenFile by fileDiffHash — setDiffFiles is
 	// called twice at startup (tracked files, then again once untracked
@@ -212,10 +241,10 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 		commentNavIncludeResolved: prefs.CommentNavIncludeResolved,
 		splitView:                 prefs.SplitView,
 		commentExpanded:           map[string]bool{},
-		layoutCache:               &diffLayout{},
-		splitLayoutCache:          &diffLayout{},
-		diffLinesCache:            &diffLinesCache{},
-		splitLinesCache:           &diffLinesCache{},
+		layoutCache:               map[string]diffLayout{},
+		splitLayoutCache:          map[string]diffLayout{},
+		diffLinesCache:            map[string]diffLinesCache{},
+		splitLinesCache:           map[string]diffLinesCache{},
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt

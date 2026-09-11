@@ -38,6 +38,65 @@ func TestApplySyntaxTokensClassifiesBlockCommentCorrectly(t *testing.T) {
 	}
 }
 
+// TestLazyHunkTokenizePreservesBlockCommentAcrossViews is
+// TestApplySyntaxTokensClassifiesBlockCommentCorrectly's integration-level
+// counterpart: guards that deferring applySyntaxTokens to
+// ensureHunkTokenized (see hunktokens.go) doesn't lose the cross-line
+// state it exists for, in either flattenFile's unified rows or its split
+// rows (which alias the same underlying Hunk rather than getting a
+// separate backfill — see pairHunkLines).
+func TestLazyHunkTokenizePreservesBlockCommentAcrossViews(t *testing.T) {
+	n := 1
+	var lines []Line
+	for _, c := range []string{"/**", " * if this is true, return null.", " */"} {
+		nn := n
+		lines = append(lines, Line{Kind: LineContext, Content: c, OldLine: &nn, NewLine: &nn})
+		n++
+	}
+	fd := FileDiff{Path: "a.ts", Status: FileModified, Hunks: []Hunk{{Header: "h", Lines: lines}}}
+	fr := flattenFile(fd)
+
+	for _, fresh := range fr.tokenizedHunks {
+		if fresh {
+			t.Fatal("expected tokenizing to be deferred, not done at flatten time")
+		}
+	}
+	ensureHunkTokenized(fr, 0)
+
+	checkAllCommentMultiline := func(toks []chroma.Token, content string) {
+		if len(toks) == 0 {
+			t.Fatalf("expected tokens to be populated for %q", content)
+		}
+		for _, tok := range toks {
+			if tok.Type != chroma.CommentMultiline {
+				t.Fatalf("expected CommentMultiline, got %s (%q) in %q", tok.Type, tok.Value, content)
+			}
+		}
+	}
+
+	for _, row := range fr.rows {
+		if row.kind == rowLine {
+			checkAllCommentMultiline(row.line.Tokens, row.line.Content)
+		}
+	}
+	for _, row := range fr.splitRows {
+		if row.kind == rowLine && row.left != nil {
+			checkAllCommentMultiline(row.left.Tokens, row.left.Content)
+		}
+	}
+}
+
+func TestHunkIndexForRow(t *testing.T) {
+	// 3 hunks: rows [0,3), [3,3) (empty hunk, header-only), [3,7)
+	starts := []int{0, 3, 3, 7}
+	cases := map[int]int{0: 0, 1: 0, 2: 0, 3: 2, 4: 2, 5: 2, 6: 2}
+	for row, want := range cases {
+		if got := hunkIndexForRow(starts, row); got != want {
+			t.Errorf("hunkIndexForRow(%v, %d) = %d, want %d", starts, row, got, want)
+		}
+	}
+}
+
 // TestApplySyntaxTokensLeavesCodeLinesAlone is the sibling guard: real
 // code content (not inside any comment) should still classify normally —
 // this isn't about forcing everything to look like a comment, only about

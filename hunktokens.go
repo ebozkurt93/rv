@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -107,6 +108,31 @@ func splitTokensByLine(iterator chroma.Iterator, n int) [][]chroma.Token {
 		}
 	}
 	return out
+}
+
+// hunkIndexForRow finds i such that hunkStart[i] <= row < hunkStart[i+1] —
+// hunkStart has one entry per hunk plus a final len(rows) sentinel (see
+// fileRows.hunkRowStart/hunkSplitRowStart).
+func hunkIndexForRow(hunkStart []int, row int) int {
+	return sort.Search(len(hunkStart)-1, func(i int) bool { return hunkStart[i+1] > row })
+}
+
+// ensureHunkTokenized runs applySyntaxTokens for hunk hunkIdx on first use
+// instead of flattenFile doing every hunk up front — most of a large
+// file's hunks are never scrolled into view in a given session. Split rows
+// need no separate update since they point directly into fr.file.Hunks'
+// backing array (see splitpair.go).
+func ensureHunkTokenized(fr fileRows, hunkIdx int) {
+	if fr.tokenizedHunks[hunkIdx] {
+		return
+	}
+	fr.tokenizedHunks[hunkIdx] = true
+	applySyntaxTokens(&fr.file.Hunks[hunkIdx], fr.lexer)
+
+	rowStart := fr.hunkRowStart[hunkIdx]
+	for j, l := range fr.file.Hunks[hunkIdx].Lines {
+		fr.rows[rowStart+1+j].line.Tokens = l.Tokens
+	}
 }
 
 // tokenIterator replays a pre-computed token slice as a chroma.Iterator,

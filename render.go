@@ -280,6 +280,22 @@ func fitBlock(lines []string, height int) []string {
 	return out
 }
 
+// capUnstyledLength bounds s before ansi.Truncate/StringWidth below — a
+// multi-KB plain line is expensive to measure otherwise, and safe to
+// byte-slice once past any ANSI codes near the start (a colored gutter,
+// closed before real content begins).
+func capUnstyledLength(s string, width int) string {
+	const safetyMultiplier = 8
+	limit := width * safetyMultiplier
+	if len(s) <= limit {
+		return s
+	}
+	if lastEsc := strings.LastIndexByte(s, '\x1b'); lastEsc >= limit-20 {
+		return s
+	}
+	return s[:limit]
+}
+
 // fitLine truncates (never wraps) s to exactly width cells, right-padding
 // with spaces if it's shorter. Every line handed to a bordered panel goes
 // through this, so the panel's rendered width is always exactly width
@@ -291,6 +307,7 @@ func fitLine(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	s = capUnstyledLength(s, width)
 	s = ansi.Truncate(s, width, "…")
 	if w := ansi.StringWidth(s); w < width {
 		s += strings.Repeat(" ", width-w)
@@ -325,6 +342,7 @@ func fitLineWithBackground(s string, width int, bg color.Color) string {
 	if width <= 0 {
 		return ""
 	}
+	s = capUnstyledLength(s, width)
 	s = ansi.Truncate(s, width, "…")
 	r, g, b, _ := bg.RGBA()
 	bgEscape := fmt.Sprintf("\033[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
@@ -615,9 +633,8 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 	leftW, rightW := splitColumnWidths(width)
 
 	key := diffLinesCacheKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.mode, m.lineIndex, m.editingCommentID, m.editingReplyID, m.replyingToCommentID, m.input, m.commentExpanded)
-	if m.splitLinesCache != nil && m.splitLinesCache.key == key {
-		c := m.splitLinesCache
-		return c.lines, c.cursorLine, c.rowFor, c.mainLine
+	if cached, ok := m.splitLinesCache[fr.hash]; ok && cached.key == key {
+		return cached.lines, cached.cursorLine, cached.rowFor, cached.mainLine
 	}
 
 	layout := m.currentSplitDiffLayout(fr, byRow, width)
@@ -629,6 +646,10 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 	endRow := m.lineIndex + diffRenderMarginRows + 1
 	if endRow > len(rows) {
 		endRow = len(rows)
+	}
+
+	for hi := hunkIndexForRow(fr.hunkSplitRowStart, startRow); hi <= hunkIndexForRow(fr.hunkSplitRowStart, endRow-1); hi++ {
+		ensureHunkTokenized(fr, hi)
 	}
 
 	leadingPhysLines := layout.offsets[startRow]
@@ -679,8 +700,14 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 		if cursor {
 			cursorLine = start
 		}
-		leftLines := splitSidePhysicalLines(fr.lexer, row.left, m.showLineNumbers, fr.numWidth, cursor, m.wrapLines, leftW)
-		rightLines := splitSidePhysicalLines(fr.lexer, row.right, m.showLineNumbers, fr.numWidth, cursor, m.wrapLines, rightW)
+		var leftLines, rightLines []string
+		if cursor {
+			leftLines = splitSidePhysicalLines(fr.lexer, row.left, m.showLineNumbers, fr.numWidth, true, m.wrapLines, leftW)
+			rightLines = splitSidePhysicalLines(fr.lexer, row.right, m.showLineNumbers, fr.numWidth, true, m.wrapLines, rightW)
+		} else {
+			leftLines = cachedSplitSideLines(fr, fr.splitLeftRenderCache, i, row.left, rowRenderKey{width: leftW, wrapLines: m.wrapLines, showNumbers: m.showLineNumbers})
+			rightLines = cachedSplitSideLines(fr, fr.splitRightRenderCache, i, row.right, rowRenderKey{width: rightW, wrapLines: m.wrapLines, showNumbers: m.showLineNumbers})
+		}
 		n := len(leftLines)
 		if len(rightLines) > n {
 			n = len(rightLines)
@@ -739,9 +766,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 		mainLine = append(mainLine, false)
 	}
 
-	if m.splitLinesCache != nil {
-		*m.splitLinesCache = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
-	}
+	m.splitLinesCache[fr.hash] = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
 	return lines, cursorLine, rowFor, mainLine
 }
 
@@ -810,6 +835,18 @@ func splitSidePhysicalLines(lexer chroma.Lexer, l *Line, showNumbers bool, numWi
 		out[i] = fit(p)
 	}
 	return out
+}
+
+// cachedSplitSideLines is cachedRowLines' split-view counterpart — cache is
+// fr.splitLeftRenderCache or fr.splitRightRenderCache, whichever side l
+// belongs to.
+func cachedSplitSideLines(fr fileRows, cache []rowRenderCacheEntry, rowIdx int, l *Line, key rowRenderKey) []string {
+	if entry := cache[rowIdx]; entry.key == key {
+		return entry.lines
+	}
+	lines := splitSidePhysicalLines(fr.lexer, l, key.showNumbers, fr.numWidth, false, key.wrapLines, key.width)
+	cache[rowIdx] = rowRenderCacheEntry{key: key, lines: lines}
+	return lines
 }
 
 // renderBorderedRaw draws the same rounded-border-plus-1-space-padding box
@@ -909,9 +946,8 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	byRow := m.commentsByRow(fr)
 
 	key := diffLinesCacheKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.mode, m.lineIndex, m.editingCommentID, m.editingReplyID, m.replyingToCommentID, m.input, m.commentExpanded)
-	if m.diffLinesCache != nil && m.diffLinesCache.key == key {
-		c := m.diffLinesCache
-		return c.lines, c.cursorLine, c.rowFor, c.mainLine
+	if cached, ok := m.diffLinesCache[fr.hash]; ok && cached.key == key {
+		return cached.lines, cached.cursorLine, cached.rowFor, cached.mainLine
 	}
 
 	// Only rows within diffRenderMarginRows of the cursor get the expensive
@@ -926,6 +962,10 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	endRow := m.lineIndex + diffRenderMarginRows + 1
 	if endRow > len(rows) {
 		endRow = len(rows)
+	}
+
+	for hi := hunkIndexForRow(fr.hunkRowStart, startRow); hi <= hunkIndexForRow(fr.hunkRowStart, endRow-1); hi++ {
+		ensureHunkTokenized(fr, hi)
 	}
 
 	leadingPhysLines := layout.offsets[startRow]
@@ -955,6 +995,8 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		mainLine = append(mainLine, main)
 	}
 
+	rowKey := rowRenderKey{width: width, wrapLines: m.wrapLines, showNumbers: m.showLineNumbers}
+
 	for i := startRow; i < endRow; i++ {
 		row := rows[i]
 		if row.kind == rowHunkHeader {
@@ -967,12 +1009,17 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		}
 
 		cursor := i == m.lineIndex
-		text := renderLine(m.files[m.fileIndex].lexer, row.line, m.showLineNumbers, m.files[m.fileIndex].numWidth, cursor)
 		start := len(lines)
 		if cursor {
 			cursorLine = start
+			appendText(renderLine(fr.lexer, row.line, m.showLineNumbers, fr.numWidth, true), i, true, 0, "")
+		} else {
+			for _, l := range cachedRowLines(fr, i, rowKey) {
+				lines = append(lines, l)
+				rowFor = append(rowFor, i)
+				mainLine = append(mainLine, true)
+			}
 		}
-		appendText(text, i, true, 0, "")
 
 		for _, c := range byRow[i] {
 			// While this exact comment is being edited in place, the editor
@@ -1026,9 +1073,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		mainLine = append(mainLine, false)
 	}
 
-	if m.diffLinesCache != nil {
-		*m.diffLinesCache = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
-	}
+	m.diffLinesCache[fr.hash] = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
 	return lines, cursorLine, rowFor, mainLine
 }
 
@@ -1329,6 +1374,22 @@ func (m model) renderCommentEditor() string {
 		rendered[i] = styleComment.Render(prefix + l)
 	}
 	return strings.Join(rendered, "\n")
+}
+
+// cachedRowLines returns rowIdx's rendered (non-cursor) physical lines,
+// computing and caching them on first use for this key — see
+// fileRows.rowRenderCache.
+func cachedRowLines(fr fileRows, rowIdx int, key rowRenderKey) []string {
+	if entry := fr.rowRenderCache[rowIdx]; entry.key == key {
+		return entry.lines
+	}
+	text := renderLine(fr.lexer, fr.rows[rowIdx].line, key.showNumbers, fr.numWidth, false)
+	lines := []string{text}
+	if key.wrapLines {
+		lines = wrapLineIndented(text, key.width, 0, "")
+	}
+	fr.rowRenderCache[rowIdx] = rowRenderCacheEntry{key: key, lines: lines}
+	return lines
 }
 
 // renderLine renders one diff line's gutter + prefix + syntax-highlighted
