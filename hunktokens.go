@@ -58,6 +58,14 @@ func assignBlockTokens(h *Hunk, lexer chroma.Lexer, idx []int, lines []string) {
 	if len(idx) == 0 {
 		return
 	}
+	// One line past maxHighlightLineChars bails the whole block (chroma's
+	// cost is driven by total joined length) — falls back to
+	// highlightContent's per-line tokenize at render time instead.
+	for _, l := range lines {
+		if len(l) > maxHighlightLineChars {
+			return
+		}
+	}
 	iterator, err := lexer.Tokenise(nil, strings.Join(lines, "\n"))
 	if err != nil {
 		return

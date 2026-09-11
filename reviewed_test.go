@@ -24,19 +24,19 @@ func TestToggleCurrentFileReviewedMarksAndUnmarks(t *testing.T) {
 	fd := fileDiffWithLines("a.go", 5)
 	m := newModel("/repo", []FileDiff{fd}, Session{}, nil)
 
-	if isFileReviewed(m.session, fd) {
+	if isFileReviewed(m.session, flattenFile(fd)) {
 		t.Fatal("expected not reviewed initially")
 	}
 
 	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
-	if !isFileReviewed(m2.session, fd) {
+	if !isFileReviewed(m2.session, flattenFile(fd)) {
 		t.Fatal("expected reviewed after v")
 	}
 
 	mm, _ = m2.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m3 := mm.(model)
-	if isFileReviewed(m3.session, fd) {
+	if isFileReviewed(m3.session, flattenFile(fd)) {
 		t.Fatal("expected un-reviewed after pressing v again")
 	}
 }
@@ -49,13 +49,13 @@ func TestFileChangeAutomaticallyUnreviewsIt(t *testing.T) {
 
 	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
-	if !isFileReviewed(m2.session, fd) {
+	if !isFileReviewed(m2.session, flattenFile(fd)) {
 		t.Fatal("expected reviewed")
 	}
 
 	// The file changes (more edits land) — same path, different content.
 	changed := fileDiffWithLines("a.go", 9)
-	if isFileReviewed(m2.session, changed) {
+	if isFileReviewed(m2.session, flattenFile(changed)) {
 		t.Fatal("expected a changed file to read as unreviewed even though the mark for that path still exists")
 	}
 }
@@ -68,7 +68,7 @@ func TestToggleReviewedPersistsAcrossReload(t *testing.T) {
 
 	mm, _ := m.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
 	m2 := mm.(model)
-	if !isFileReviewed(m2.session, fd) {
+	if !isFileReviewed(m2.session, flattenFile(fd)) {
 		t.Fatal("expected reviewed")
 	}
 
@@ -76,7 +76,7 @@ func TestToggleReviewedPersistsAcrossReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !isFileReviewed(reloaded, fd) {
+	if !isFileReviewed(reloaded, flattenFile(fd)) {
 		t.Fatal("expected the reviewed mark to survive a session reload")
 	}
 }

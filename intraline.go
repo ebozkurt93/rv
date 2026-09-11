@@ -77,6 +77,10 @@ func computeIntralineMasks(oldContent, newContent string) (oldMask, newMask []bo
 	if oldContent == newContent {
 		return nil, nil
 	}
+	// diffTokens is O(n*m); an unbounded line can blow it up to gigabytes.
+	if len(oldContent) > maxHighlightLineChars || len(newContent) > maxHighlightLineChars {
+		return nil, nil
+	}
 	oldTok := intralineTokenPattern.FindAllString(oldContent, -1)
 	newTok := intralineTokenPattern.FindAllString(newContent, -1)
 

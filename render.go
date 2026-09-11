@@ -108,9 +108,11 @@ func (m model) viewContent() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, empty, m.renderFooter())
 	}
 
-	diff := m.renderDiff()
+	var diff string
 	if m.splitView {
 		diff = m.renderDiffSplit()
+	} else {
+		diff = m.renderDiff()
 	}
 	body := diff
 	if !m.sidebarHidden {
@@ -173,7 +175,7 @@ func (m model) renderHeader() string {
 	}
 	reviewedCount := 0
 	for _, fr := range m.files {
-		if isFileReviewed(m.session, fr.file) {
+		if isFileReviewed(m.session, fr) {
 			reviewedCount++
 		}
 	}
@@ -224,7 +226,7 @@ func (m model) renderHeader() string {
 	// renderSidebarRow's own check column (a space when not reviewed, so
 	// the path doesn't shift horizontally depending on status).
 	check := " "
-	if isFileReviewed(m.session, selFile) {
+	if isFileReviewed(m.session, m.files[m.fileIndex]) {
 		check = styleAdded.Render("✓")
 	}
 	label := ""
@@ -396,7 +398,7 @@ func (m model) renderSidebar() string {
 	cursorPos := 0
 	for pos, fi := range vis {
 		fr := m.files[fi]
-		reviewed := isFileReviewed(m.session, fr.file)
+		reviewed := isFileReviewed(m.session, fr)
 		unresolved, total := commentCounts(m.session.Comments, fr.file.Path)
 		lines[pos] = renderSidebarRow(fr, fi == m.fileIndex, reviewed, unresolved, total, innerW)
 		if fi == m.fileIndex {
@@ -603,19 +605,43 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 	if m.files[m.fileIndex].file.Binary {
 		return []string{styleMuted.Render("(binary file, not shown)")}, 0, []int{-1}, []bool{false}
 	}
+	if m.files[m.fileIndex].file.TooLarge {
+		return []string{styleMuted.Render("(file too large to display, not shown)")}, 0, []int{-1}, []bool{false}
+	}
 
-	rows := m.currentSplitRows()
 	fr := m.files[m.fileIndex]
+	rows := fr.splitRows
 	byRow := m.commentsByRow(fr)
 	leftW, rightW := splitColumnWidths(width)
 
+	key := diffLinesCacheKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.mode, m.lineIndex, m.editingCommentID, m.editingReplyID, m.replyingToCommentID, m.input, m.commentExpanded)
+	if m.splitLinesCache != nil && m.splitLinesCache.key == key {
+		c := m.splitLinesCache
+		return c.lines, c.cursorLine, c.rowFor, c.mainLine
+	}
+
+	layout := m.currentSplitDiffLayout(fr, byRow, width)
+
+	startRow := m.lineIndex - diffRenderMarginRows
+	if startRow < 0 {
+		startRow = 0
+	}
+	endRow := m.lineIndex + diffRenderMarginRows + 1
+	if endRow > len(rows) {
+		endRow = len(rows)
+	}
+
+	leadingPhysLines := layout.offsets[startRow]
+	lines = make([]string, leadingPhysLines, layout.offsets[len(rows)])
+	rowFor = make([]int, leadingPhysLines, layout.offsets[len(rows)])
+	mainLine = make([]bool, leadingPhysLines, layout.offsets[len(rows)])
+	for i := range rowFor {
+		rowFor[i] = -1
+	}
+
 	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
 		if m.wrapLines {
-			w := width
-			if indent == commentIndentWidth && w > maxCommentWrapWidth {
-				w = maxCommentWrapWidth
-			}
-			for _, l := range wrapLineIndented(text, w, indent, pad) {
+			for _, l := range wrapLineIndented(text, effectiveWrapWidth(width, indent), indent, pad) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
 				mainLine = append(mainLine, main)
@@ -627,7 +653,18 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 		mainLine = append(mainLine, main)
 	}
 
-	for i, row := range rows {
+	// appendFixed skips appendText's wrap check for a paired content row's
+	// joined l+sep+r — already fit to exactly width by
+	// splitSidePhysicalLines/splitPadLine (see splitColumnWidths), so
+	// re-wrapping it is pure waste.
+	appendFixed := func(text string, rowIdx int) {
+		lines = append(lines, text)
+		rowFor = append(rowFor, rowIdx)
+		mainLine = append(mainLine, true)
+	}
+
+	for i := startRow; i < endRow; i++ {
+		row := rows[i]
 		if row.kind == rowHunkHeader {
 			start := len(lines)
 			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false, 0, "")
@@ -658,7 +695,7 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 			if k < len(rightLines) {
 				r = rightLines[k]
 			}
-			appendText(l+sep+r, i, true, 0, "")
+			appendFixed(l+sep+r, i)
 		}
 
 		for _, c := range byRow[i] {
@@ -693,6 +730,17 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 				mainLine = append(mainLine, false)
 			}
 		}
+	}
+
+	trailingPhysLines := layout.offsets[len(rows)] - layout.offsets[endRow]
+	for k := 0; k < trailingPhysLines; k++ {
+		lines = append(lines, "")
+		rowFor = append(rowFor, -1)
+		mainLine = append(mainLine, false)
+	}
+
+	if m.splitLinesCache != nil {
+		*m.splitLinesCache = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
 	}
 	return lines, cursorLine, rowFor, mainLine
 }
@@ -852,9 +900,41 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	if m.files[m.fileIndex].file.Binary {
 		return []string{styleMuted.Render("(binary file, not shown)")}, 0, []int{-1}, []bool{false}
 	}
+	if m.files[m.fileIndex].file.TooLarge {
+		return []string{styleMuted.Render("(file too large to display, not shown)")}, 0, []int{-1}, []bool{false}
+	}
 
-	rows := m.currentRows()
-	byRow := m.commentsByRow(m.files[m.fileIndex])
+	fr := m.files[m.fileIndex]
+	rows := fr.rows
+	byRow := m.commentsByRow(fr)
+
+	key := diffLinesCacheKey(fr, byRow, width, m.wrapLines, m.showLineNumbers, m.mode, m.lineIndex, m.editingCommentID, m.editingReplyID, m.replyingToCommentID, m.input, m.commentExpanded)
+	if m.diffLinesCache != nil && m.diffLinesCache.key == key {
+		c := m.diffLinesCache
+		return c.lines, c.cursorLine, c.rowFor, c.mainLine
+	}
+
+	// Only rows within diffRenderMarginRows of the cursor get the expensive
+	// treatment below; the rest are blank placeholders, sized via layout's
+	// cheap per-row heights so scroll/cursor math still comes out right.
+	layout := m.currentDiffLayout(fr, byRow, width)
+
+	startRow := m.lineIndex - diffRenderMarginRows
+	if startRow < 0 {
+		startRow = 0
+	}
+	endRow := m.lineIndex + diffRenderMarginRows + 1
+	if endRow > len(rows) {
+		endRow = len(rows)
+	}
+
+	leadingPhysLines := layout.offsets[startRow]
+	lines = make([]string, leadingPhysLines, layout.offsets[len(rows)])
+	rowFor = make([]int, leadingPhysLines, layout.offsets[len(rows)])
+	mainLine = make([]bool, leadingPhysLines, layout.offsets[len(rows)])
+	for i := range rowFor {
+		rowFor[i] = -1
+	}
 
 	// indent, when non-zero and wrapLines is on, keeps a wrapped
 	// continuation aligned under the line's own structural prefix instead
@@ -863,11 +943,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 	// "●"/"├─"/"└─" tree connector rather than actual content.
 	appendText := func(text string, rowIdx int, main bool, indent int, pad string) {
 		if m.wrapLines {
-			w := width
-			if indent == commentIndentWidth && w > maxCommentWrapWidth {
-				w = maxCommentWrapWidth
-			}
-			for _, l := range wrapLineIndented(text, w, indent, pad) {
+			for _, l := range wrapLineIndented(text, effectiveWrapWidth(width, indent), indent, pad) {
 				lines = append(lines, l)
 				rowFor = append(rowFor, rowIdx)
 				mainLine = append(mainLine, main)
@@ -879,7 +955,8 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		mainLine = append(mainLine, main)
 	}
 
-	for i, row := range rows {
+	for i := startRow; i < endRow; i++ {
+		row := rows[i]
 		if row.kind == rowHunkHeader {
 			start := len(lines)
 			appendText(styleHunk.Render("@@ "+row.hunkHeader), i, false, 0, "")
@@ -939,6 +1016,19 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 			}
 		}
 	}
+
+	// Uses layout's cached offsets, not len(lines) — rows after endRow are
+	// never affected by in-progress comment editing at the cursor row.
+	trailingPhysLines := layout.offsets[len(rows)] - layout.offsets[endRow]
+	for k := 0; k < trailingPhysLines; k++ {
+		lines = append(lines, "")
+		rowFor = append(rowFor, -1)
+		mainLine = append(mainLine, false)
+	}
+
+	if m.diffLinesCache != nil {
+		*m.diffLinesCache = diffLinesCache{key: key, lines: lines, cursorLine: cursorLine, rowFor: rowFor, mainLine: mainLine}
+	}
 	return lines, cursorLine, rowFor, mainLine
 }
 
@@ -957,7 +1047,7 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 // arrives at fitLineWithBackground already at full width, so its own
 // padding branch never runs, and the wrap-added padding stays uncolored.
 func wrapLine(s string, width int) []string {
-	if width <= 0 {
+	if width <= 0 || len(s) > maxHighlightLineChars {
 		return []string{s}
 	}
 	rawLines := strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")

@@ -984,8 +984,9 @@ func (m *model) toggleCurrentFileReviewed() {
 	if m.fileIndex < 0 || m.fileIndex >= len(m.files) {
 		return
 	}
-	fd := m.files[m.fileIndex].file
-	reviewed := isFileReviewed(m.session, fd)
+	fr := m.files[m.fileIndex]
+	fd := fr.file
+	reviewed := isFileReviewed(m.session, fr)
 
 	m.mutateSession(func(s Session) (Session, error) {
 		if reviewed {
@@ -994,7 +995,7 @@ func (m *model) toggleCurrentFileReviewed() {
 			if s.Reviewed == nil {
 				s.Reviewed = map[string]string{}
 			}
-			s.Reviewed[fd.Path] = fileDiffHash(fd)
+			s.Reviewed[fd.Path] = fr.hash
 		}
 		return s, nil
 	})

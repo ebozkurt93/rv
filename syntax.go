@@ -188,6 +188,10 @@ func ansiFgEscape(c color.Color) string {
 	return fmt.Sprintf("\033[%dm", 90+(idx-8))
 }
 
+// maxHighlightLineChars: past this, a line skips syntax tokenizing,
+// intraline word-diffing, and word-wrap, rendering plain instead.
+const maxHighlightLineChars = 3000
+
 // pickLexer resolves which chroma lexer to use for path, once per file
 // (cached on fileRows — lexers.Match does filename pattern matching, not
 // worth repeating per line).
@@ -216,6 +220,9 @@ func pickLexer(path string) chroma.Lexer {
 func highlightContent(lexer chroma.Lexer, fmtr chroma.Formatter, content string, tokens []chroma.Token, mask []bool) string {
 	iterator := tokenIterator(tokens)
 	if tokens == nil {
+		if len(content) > maxHighlightLineChars {
+			return content
+		}
 		var err error
 		iterator, err = lexer.Tokenise(nil, content)
 		if err != nil {
@@ -308,7 +315,22 @@ func truecolorFgEscape(c chroma.Colour) string {
 // the way to 0 or 1) — which happens automatically here rather than
 // needing a separate fallback path, since that's just where this loop
 // naturally bottoms out for a color that's already very desaturated.
+// contrastCache memoizes ensureContrast — the (seeking, bg) pairs are a
+// small, fixed set (style colors × tint backgrounds), but it's called once
+// per rendered token, and the OkLab search below is real work.
+var contrastCache = map[int64]chroma.Colour{}
+
 func ensureContrast(seeking, bg chroma.Colour) chroma.Colour {
+	key := int64(seeking)<<32 | int64(uint32(bg))
+	if cached, ok := contrastCache[key]; ok {
+		return cached
+	}
+	result := ensureContrastUncached(seeking, bg)
+	contrastCache[key] = result
+	return result
+}
+
+func ensureContrastUncached(seeking, bg chroma.Colour) chroma.Colour {
 	if contrastRatio(seeking, bg) >= minTintedContrast {
 		return seeking
 	}

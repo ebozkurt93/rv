@@ -55,6 +55,9 @@ type fileRows struct {
 	// lexer is resolved once per file (lexers.Match does filename pattern
 	// matching — not worth repeating for every line rendered).
 	lexer chroma.Lexer
+	// hash is fileDiffHash(file), computed once — fileDiffHash walks every
+	// line of every hunk, too expensive to redo on every cache-key build.
+	hash string
 }
 
 func flattenFile(fd FileDiff) fileRows {
@@ -67,7 +70,7 @@ func flattenFile(fd FileDiff) fileRows {
 		applySyntaxTokens(&fd.Hunks[i], lexer)
 	}
 
-	fr := fileRows{file: fd, lexer: lexer}
+	fr := fileRows{file: fd, lexer: lexer, hash: fileDiffHash(fd)}
 	maxNum := 0
 	for _, h := range fd.Hunks {
 		fr.rows = append(fr.rows, diffRow{kind: rowHunkHeader, hunkHeader: h.Header})
@@ -177,6 +180,21 @@ type model struct {
 	// changes made by another process (e.g. an agent running `rv comment
 	// reply`) while this TUI instance is sitting open — see pollSessionCmd.
 	sessionMTime time.Time
+
+	// layoutCache/splitLayoutCache cache the cheap per-row height pass (see
+	// difflayout.go); diffLinesCache/splitLinesCache cache the full
+	// rendered output, reused when a render is triggered by something
+	// unrelated (e.g. the background session poll). Pointer fields so they
+	// survive View()'s value receiver.
+	layoutCache      *diffLayout
+	splitLayoutCache *diffLayout
+	diffLinesCache   *diffLinesCache
+	splitLinesCache  *diffLinesCache
+
+	// flattenCache memoizes flattenFile by fileDiffHash — setDiffFiles is
+	// called twice at startup (tracked files, then again once untracked
+	// arrive) and would otherwise redo the first call's work.
+	flattenCache map[string]fileRows
 }
 
 func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec []string) model {
@@ -194,6 +212,10 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 		commentNavIncludeResolved: prefs.CommentNavIncludeResolved,
 		splitView:                 prefs.SplitView,
 		commentExpanded:           map[string]bool{},
+		layoutCache:               &diffLayout{},
+		splitLayoutCache:          &diffLayout{},
+		diffLinesCache:            &diffLinesCache{},
+		splitLinesCache:           &diffLinesCache{},
 	}
 	if mt, err := sessionModTime(repoRoot); err == nil {
 		m.sessionMTime = mt
@@ -385,14 +407,25 @@ func (m *model) setDiffFiles(diffFiles []FileDiff) {
 		currentPath = m.files[m.fileIndex].file.Path
 	}
 
+	newCache := make(map[string]fileRows, len(diffFiles))
 	files := make([]fileRows, 0, len(diffFiles))
 	newIndex := 0
 	for i, fd := range diffFiles {
-		files = append(files, flattenFile(fd))
+		hash := fileDiffHash(fd)
+		fr, ok := newCache[hash]
+		if !ok {
+			fr, ok = m.flattenCache[hash]
+		}
+		if !ok {
+			fr = flattenFile(fd)
+		}
+		newCache[hash] = fr
+		files = append(files, fr)
 		if fd.Path == currentPath {
 			newIndex = i
 		}
 	}
+	m.flattenCache = newCache
 	m.files = files
 	m.fileIndex = newIndex
 
@@ -519,15 +552,18 @@ func (m model) currentLineLabel() string {
 	return ""
 }
 
-// isFileReviewed reports whether fd is marked reviewed in session AND its
+// isFileReviewed reports whether fr is marked reviewed in session AND its
 // content still matches the hash it had when marked — a stale mark (the
 // file changed since) counts as unreviewed rather than lying about it.
-func isFileReviewed(session Session, fd FileDiff) bool {
+// Takes fr.hash rather than re-hashing fr.file — this runs once per file
+// on every render (header count, sidebar rows), and fileDiffHash walks
+// every line of every hunk.
+func isFileReviewed(session Session, fr fileRows) bool {
 	if session.Reviewed == nil {
 		return false
 	}
-	hash, ok := session.Reviewed[fd.Path]
-	return ok && hash == fileDiffHash(fd)
+	hash, ok := session.Reviewed[fr.file.Path]
+	return ok && hash == fr.hash
 }
 
 // rowComment pairs a Comment with whether it's anchored via

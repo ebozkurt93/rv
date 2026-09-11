@@ -219,6 +219,26 @@ type FileDiff struct {
 	// untrackedFileDiffs) — distinguished from Status == FileAdded, which
 	// git diff itself reports for a file that's staged/tracked as new.
 	Untracked bool
+	// TooLarge is true when this file's diff was too big to parse/render
+	// line-by-line — see maxDiffContentBytes. Like Binary, Hunks is empty
+	// and the diff pane shows a placeholder instead.
+	TooLarge bool
+}
+
+// maxDiffContentBytes: past this much diff content, show a placeholder
+// instead of parsing/rendering line-by-line (see FileDiff.TooLarge).
+const maxDiffContentBytes = 2 * 1024 * 1024
+
+// diffContentBytes sums the byte length of every line's content across
+// every hunk, the same total maxDiffContentBytes is measured against.
+func diffContentBytes(hunks []Hunk) int64 {
+	var n int64
+	for _, h := range hunks {
+		for _, l := range h.Lines {
+			n += int64(len(l.Content)) + 1
+		}
+	}
+	return n
 }
 
 // fileDiffHash fingerprints a file's diff content (every hunk header and
@@ -230,7 +250,7 @@ type FileDiff struct {
 // it, which is the conservative direction to be wrong in.
 func fileDiffHash(fd FileDiff) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%d\x00%v\x00", fd.Path, fd.Status, fd.Binary)
+	fmt.Fprintf(h, "%s\x00%d\x00%v\x00%v\x00", fd.Path, fd.Status, fd.Binary, fd.TooLarge)
 	for _, hunk := range fd.Hunks {
 		fmt.Fprintf(h, "@%s\x00", hunk.Header)
 		for _, l := range hunk.Lines {
@@ -266,8 +286,15 @@ func ParseDiff(raw string) ([]FileDiff, error) {
 			fd.Path = fd.OldPath
 		}
 
+		var contentBytes int64
 		for _, h := range f.Hunks {
 			hunk := convertHunk(h)
+			contentBytes += diffContentBytes([]Hunk{hunk})
+			if contentBytes > maxDiffContentBytes {
+				fd.TooLarge = true
+				fd.Hunks = nil
+				break
+			}
 			applyIntralineHighlights(&hunk)
 			fd.Hunks = append(fd.Hunks, hunk)
 		}
@@ -309,8 +336,15 @@ func looksBinary(data []byte) bool {
 // line shown as added, since from a fresh-file perspective the whole thing
 // is new. A binary file gets Binary set instead of a hunk dump of raw bytes
 // as "added lines" — see FileDiff.Binary.
+//
+// Size checked via os.Stat before the read, not after — so a multi-GB
+// untracked file never gets read into memory at all.
 func untrackedFileDiff(repoRoot, relPath string) (FileDiff, error) {
-	data, err := os.ReadFile(filepath.Join(repoRoot, relPath))
+	fullPath := filepath.Join(repoRoot, relPath)
+	if info, err := os.Stat(fullPath); err == nil && info.Size() > maxDiffContentBytes {
+		return FileDiff{Path: relPath, Status: FileAdded, Untracked: true, TooLarge: true}, nil
+	}
+	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return FileDiff{}, err
 	}
