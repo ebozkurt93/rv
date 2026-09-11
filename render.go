@@ -1097,7 +1097,10 @@ func wrapLine(s string, width int) []string {
 	if width <= 0 || ansi.StringWidth(s) > maxHighlightLineChars {
 		return []string{s}
 	}
-	rawLines := strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")
+	// lipgloss.Wrap directly, not Style.Width().Render() — same wrap
+	// algorithm (verified: identical line breaks once both are trimmed)
+	// without also computing and discarding padding we trim right back off.
+	rawLines := strings.Split(lipgloss.Wrap(s, width, ""), "\n")
 	lines := make([]string, len(rawLines))
 	for i, l := range rawLines {
 		lines[i] = strings.TrimRight(l, " ")
