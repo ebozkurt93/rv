@@ -19,6 +19,19 @@ func TestFileDiffHashStableAndSensitiveToContent(t *testing.T) {
 	}
 }
 
+// TestFileDiffHashDistinguishesUntracked guards setDiffFiles' flattenCache:
+// an untracked file transitioning to tracked (same path/status/hunks) must
+// not hash the same, or the cache would hand back the stale fileRows with
+// the old Untracked value.
+func TestFileDiffHashDistinguishesUntracked(t *testing.T) {
+	tracked := fileDiffWithLines("a.go", 5)
+	untracked := tracked
+	untracked.Untracked = true
+	if fileDiffHash(tracked) == fileDiffHash(untracked) {
+		t.Fatal("expected Untracked to affect the hash")
+	}
+}
+
 func TestToggleCurrentFileReviewedMarksAndUnmarks(t *testing.T) {
 	withTempHome(t)
 	fd := fileDiffWithLines("a.go", 5)

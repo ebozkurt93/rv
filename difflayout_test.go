@@ -221,3 +221,41 @@ func TestWindowedSplitRenderMatchesFullRender(t *testing.T) {
 		}
 	}
 }
+
+// TestWrapLineCapUsesVisibleWidth guards wrapLine's size cap against
+// checking ANSI-styled byte length instead of visible width — a heavily
+// styled but visually short line could otherwise skip wrapping and get
+// silently truncated downstream.
+func TestWrapLineCapUsesVisibleWidth(t *testing.T) {
+	var styled strings.Builder
+	for i := 0; i < 200; i++ {
+		styled.WriteString("\x1b[38;2;255;0;0mword\x1b[0m ")
+	}
+	s := styled.String()
+	if len(s) <= maxHighlightLineChars {
+		t.Fatalf("test line's byte length (%d) must exceed the cap (%d) to be meaningful", len(s), maxHighlightLineChars)
+	}
+	out := wrapLine(s, 40)
+	if len(out) < 2 {
+		t.Fatalf("expected a visually long line to wrap into multiple physical lines, got %d", len(out))
+	}
+}
+
+// TestClampDiffScrollStaysWithinRenderedMargin guards manual scroll
+// (model.diffScroll) against pushing the viewport past what
+// buildDiffLinesDetailed actually renders (±diffRenderMarginRows from the
+// cursor) — anything further lands on blank placeholder rows.
+func TestClampDiffScrollStaysWithinRenderedMargin(t *testing.T) {
+	height := 40
+	bound := diffRenderMarginRows - height
+
+	if got := clampDiffScroll(999999, height); got != bound {
+		t.Errorf("expected large positive scroll clamped to %d, got %d", bound, got)
+	}
+	if got := clampDiffScroll(-999999, height); got != -bound {
+		t.Errorf("expected large negative scroll clamped to %d, got %d", -bound, got)
+	}
+	if got := clampDiffScroll(5, height); got != 5 {
+		t.Errorf("expected a small in-range scroll to pass through unchanged, got %d", got)
+	}
+}

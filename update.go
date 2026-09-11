@@ -335,9 +335,9 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(-m.halfPageSize())
 
 	case keyMatches(msg, k.ScrollDown):
-		m.diffScroll += count
+		m.diffScroll = clampDiffScroll(m.diffScroll+count, m.bodyHeight())
 	case keyMatches(msg, k.ScrollUp):
-		m.diffScroll -= count
+		m.diffScroll = clampDiffScroll(m.diffScroll-count, m.bodyHeight())
 
 	case keyMatches(msg, k.NextFile):
 		m.selectVisibleFile(1)

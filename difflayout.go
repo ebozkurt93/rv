@@ -44,6 +44,24 @@ func diffLinesCacheKey(fr fileRows, byRow map[int][]rowComment, width int, wrapL
 // expensive treatment; any real terminal viewport is well under this.
 var diffRenderMarginRows = 300
 
+// clampDiffScroll bounds manual scroll (model.diffScroll) so it can't push
+// the viewport past what's actually rendered — only rows within
+// diffRenderMarginRows of the cursor get real content, everything else is
+// blank placeholder (see buildDiffLinesDetailed).
+func clampDiffScroll(scroll, height int) int {
+	bound := diffRenderMarginRows - height
+	if bound < 0 {
+		bound = 0
+	}
+	if scroll > bound {
+		return bound
+	}
+	if scroll < -bound {
+		return -bound
+	}
+	return scroll
+}
+
 // currentDiffLayout computes the "at rest" layout — every row as it looks
 // outside of active comment editing. Editing only ever targets the comment
 // on the cursor's own row (see commentActionForCurrentLine), so mode/

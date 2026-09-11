@@ -1047,7 +1047,9 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 // arrives at fitLineWithBackground already at full width, so its own
 // padding branch never runs, and the wrap-added padding stays uncolored.
 func wrapLine(s string, width int) []string {
-	if width <= 0 || len(s) > maxHighlightLineChars {
+	// Visible width, not len(s) — s already carries ANSI styling, which
+	// can push byte length past the cap on a visually short line.
+	if width <= 0 || ansi.StringWidth(s) > maxHighlightLineChars {
 		return []string{s}
 	}
 	rawLines := strings.Split(lipgloss.NewStyle().Width(width).Render(s), "\n")

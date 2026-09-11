@@ -250,7 +250,7 @@ func diffContentBytes(hunks []Hunk) int64 {
 // it, which is the conservative direction to be wrong in.
 func fileDiffHash(fd FileDiff) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%d\x00%v\x00%v\x00", fd.Path, fd.Status, fd.Binary, fd.TooLarge)
+	fmt.Fprintf(h, "%s\x00%d\x00%v\x00%v\x00%v\x00", fd.Path, fd.Status, fd.Binary, fd.TooLarge, fd.Untracked)
 	for _, hunk := range fd.Hunks {
 		fmt.Fprintf(h, "@%s\x00", hunk.Header)
 		for _, l := range hunk.Lines {
