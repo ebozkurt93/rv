@@ -150,8 +150,21 @@ func normalizeHeadBaseName(p string) string {
 	return p
 }
 
+// emptyTreeHash is git's well-known hash of an empty tree object, valid in
+// every repository regardless of history. It stands in for HEAD when HEAD
+// doesn't exist yet (a freshly initialized repo with no commits), so the
+// default diff still works instead of erroring on "ambiguous argument
+// 'HEAD'".
+const emptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 func (g gitVCS) Diff() (string, error) {
-	args := append([]string{"diff"}, g.DiffSpec()...)
+	spec := g.DiffSpec()
+	if len(spec) == 1 && spec[0] == "HEAD" {
+		if _, err := g.runner.Run("rev-parse", "--verify", "-q", "HEAD"); err != nil {
+			spec = []string{emptyTreeHash}
+		}
+	}
+	args := append([]string{"diff"}, spec...)
 	args = append(args, "--no-color", "--no-ext-diff")
 	return g.runner.Run(args...)
 }

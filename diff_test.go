@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -28,7 +29,7 @@ func TestGitVCSDiffUsesHEAD(t *testing.T) {
 	if out != runner.output {
 		t.Fatalf("got %q, want %q", out, runner.output)
 	}
-	if len(runner.calls) != 1 || runner.calls[0][0] != "diff" || runner.calls[0][1] != "HEAD" {
+	if len(runner.calls) != 2 || runner.calls[1][0] != "diff" || runner.calls[1][1] != "HEAD" {
 		t.Fatalf("unexpected git invocation: %v", runner.calls)
 	}
 }
@@ -75,7 +76,8 @@ func TestGitVCSDiffNormalizesLowercaseHead(t *testing.T) {
 		if _, err := vcs.Diff(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got := runner.calls[0][1]; got != c[1] {
+		diffCall := runner.calls[len(runner.calls)-1]
+		if got := diffCall[1]; got != c[1] {
 			t.Fatalf("normalizeHeadCasing(%q): got %q, want %q", c[0], got, c[1])
 		}
 	}
@@ -104,6 +106,37 @@ func TestGitVCSDiffDoesNotNormalizeFlags(t *testing.T) {
 	}
 	if got := runner.calls[0][1]; got != "--staged" {
 		t.Fatalf("expected flag left untouched, got %q", got)
+	}
+}
+
+// unbornHeadRunner simulates a freshly initialized repo with no commits:
+// `rev-parse --verify -q HEAD` fails since HEAD doesn't exist yet.
+type unbornHeadRunner struct {
+	fakeGitRunner
+}
+
+func (r *unbornHeadRunner) Run(args ...string) (string, error) {
+	r.calls = append(r.calls, args)
+	if len(args) >= 1 && args[0] == "rev-parse" {
+		return "", errors.New("fatal: needed a single revision")
+	}
+	return r.output, r.err
+}
+
+func TestGitVCSDiffFallsBackToEmptyTreeWhenHEADUnborn(t *testing.T) {
+	runner := &unbornHeadRunner{fakeGitRunner{output: "diff --git a/x b/x\n"}}
+	vcs := gitVCS{runner: runner}
+
+	out, err := vcs.Diff()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out != runner.output {
+		t.Fatalf("got %q, want %q", out, runner.output)
+	}
+	diffCall := runner.calls[len(runner.calls)-1]
+	if diffCall[0] != "diff" || diffCall[1] != emptyTreeHash {
+		t.Fatalf("unexpected git invocation: %v", runner.calls)
 	}
 }
 
