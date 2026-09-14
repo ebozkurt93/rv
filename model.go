@@ -224,6 +224,8 @@ type model struct {
 	// called twice at startup (tracked files, then again once untracked
 	// arrive) and would otherwise redo the first call's work.
 	flattenCache map[string]fileRows
+
+	bgKnown bool
 }
 
 func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec []string) model {
@@ -256,6 +258,19 @@ func newModel(repoRoot string, diffFiles []FileDiff, session Session, diffSpec [
 // effectiveDiffFiles is trackedDiffs, plus untrackedDiffs appended when
 // showUntracked is on — the combined list setDiffFiles actually flattens
 // into m.files.
+func (m *model) invalidateRenderCaches() {
+	m.layoutCache = map[string]diffLayout{}
+	m.splitLayoutCache = map[string]diffLayout{}
+	m.diffLinesCache = map[string]diffLinesCache{}
+	m.splitLinesCache = map[string]diffLinesCache{}
+	for i := range m.files {
+		m.files[i].rowRenderCache = make([]rowRenderCacheEntry, len(m.files[i].rows))
+		m.files[i].splitLeftRenderCache = make([]rowRenderCacheEntry, len(m.files[i].splitRows))
+		m.files[i].splitRightRenderCache = make([]rowRenderCacheEntry, len(m.files[i].splitRows))
+		m.flattenCache[m.files[i].hash] = m.files[i]
+	}
+}
+
 func (m model) effectiveDiffFiles() []FileDiff {
 	if !m.showUntracked || len(m.untrackedDiffs) == 0 {
 		return m.trackedDiffs
@@ -299,6 +314,7 @@ func (m model) Init() tea.Cmd {
 		pollSessionCmd(),
 		pollBackgroundColorCmd(),
 		func() tea.Msg { return tea.RequestBackgroundColor() },
+		bgQueryTimeoutCmd(),
 	)
 }
 

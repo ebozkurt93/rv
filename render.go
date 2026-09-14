@@ -97,6 +97,10 @@ func (m model) View() tea.View {
 }
 
 func (m model) viewContent() string {
+	if !m.bgKnown {
+		return ""
+	}
+
 	header := m.renderHeader()
 
 	if m.mode == modeHelp {

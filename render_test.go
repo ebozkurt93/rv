@@ -15,6 +15,7 @@ import (
 func TestHelpOverlayTogglesWithoutChangingFrameHeight(t *testing.T) {
 	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 5)}, Session{}, nil)
 	m.width, m.height = 100, 24
+	m.bgKnown = true
 
 	normalHeight := len(strings.Split(m.View().Content, "\n"))
 

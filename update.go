@@ -39,6 +39,14 @@ func pollBackgroundColorCmd() tea.Cmd {
 	return tea.Tick(backgroundPollInterval, func(time.Time) tea.Msg { return backgroundPollMsg{} })
 }
 
+const bgQueryTimeout = 100 * time.Millisecond
+
+type bgQueryTimeoutMsg struct{}
+
+func bgQueryTimeoutCmd() tea.Cmd {
+	return tea.Tick(bgQueryTimeout, func(time.Time) tea.Msg { return bgQueryTimeoutMsg{} })
+}
+
 // deleteWordFromEnd trims s the way alt+backspace/ctrl+w does in a shell or
 // editor: drop any trailing whitespace (including a trailing newline, since
 // comments can be multi-line via CommentNewline), then drop the run of
@@ -67,6 +75,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(pollBackgroundColorCmd(), func() tea.Msg { return tea.RequestBackgroundColor() })
 	case tea.BackgroundColorMsg:
 		setBackgroundColor(msg)
+		m.invalidateRenderCaches()
+		m.bgKnown = true
+		return m, nil
+	case bgQueryTimeoutMsg:
+		m.bgKnown = true
 		return m, nil
 	case editorClosedMsg:
 		if msg.err != nil {

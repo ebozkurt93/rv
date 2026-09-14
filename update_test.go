@@ -27,8 +27,8 @@ func TestInitStartsBackgroundColorPolling(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected Init to batch its startup commands, got %T", cmd())
 	}
-	if len(batch) != 3 {
-		t.Fatalf("expected 3 batched startup commands (session poll, background poll, initial background request), got %d", len(batch))
+	if len(batch) != 4 {
+		t.Fatalf("expected 4 batched startup commands (session poll, background poll, initial background request, background query timeout), got %d", len(batch))
 	}
 }
 
