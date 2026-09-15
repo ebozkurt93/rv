@@ -652,8 +652,10 @@ func (m model) buildSplitDiffLines(width int) (lines []string, cursorLine int, r
 		endRow = len(rows)
 	}
 
-	for hi := hunkIndexForRow(fr.hunkSplitRowStart, startRow); hi <= hunkIndexForRow(fr.hunkSplitRowStart, endRow-1); hi++ {
-		ensureHunkTokenized(fr, hi)
+	if len(rows) > 0 {
+		for hi := hunkIndexForRow(fr.hunkSplitRowStart, startRow); hi <= hunkIndexForRow(fr.hunkSplitRowStart, endRow-1); hi++ {
+			ensureHunkTokenized(fr, hi)
+		}
 	}
 
 	leadingPhysLines := layout.offsets[startRow]
@@ -968,8 +970,10 @@ func (m model) buildDiffLinesDetailed(width int) (lines []string, cursorLine int
 		endRow = len(rows)
 	}
 
-	for hi := hunkIndexForRow(fr.hunkRowStart, startRow); hi <= hunkIndexForRow(fr.hunkRowStart, endRow-1); hi++ {
-		ensureHunkTokenized(fr, hi)
+	if len(rows) > 0 {
+		for hi := hunkIndexForRow(fr.hunkRowStart, startRow); hi <= hunkIndexForRow(fr.hunkRowStart, endRow-1); hi++ {
+			ensureHunkTokenized(fr, hi)
+		}
 	}
 
 	leadingPhysLines := layout.offsets[startRow]

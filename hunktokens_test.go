@@ -97,6 +97,21 @@ func TestHunkIndexForRow(t *testing.T) {
 	}
 }
 
+// TestRenderZeroHunkFileDoesNotPanic guards a real panic: a file with no
+// hunks at all (e.g. a pure rename or mode-only change, see
+// TestParseDiffRenameOnly) has an empty rows/tokenizedHunks, yet
+// hunkIndexForRow still returns 0 for it — buildDiffLinesDetailed and
+// buildSplitDiffLines must not call ensureHunkTokenized in that case, or it
+// indexes into the empty tokenizedHunks slice.
+func TestRenderZeroHunkFileDoesNotPanic(t *testing.T) {
+	fd := FileDiff{Path: "bar.txt", OldPath: "foo.txt", Status: FileModified}
+	m := newModel("/repo", []FileDiff{fd}, Session{}, nil)
+	m.width, m.height = 100, 40
+
+	m.buildDiffLinesDetailed(80)
+	m.buildSplitDiffLines(80)
+}
+
 // TestApplySyntaxTokensLeavesCodeLinesAlone is the sibling guard: real
 // code content (not inside any comment) should still classify normally —
 // this isn't about forcing everything to look like a comment, only about
