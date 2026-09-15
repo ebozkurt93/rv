@@ -259,6 +259,44 @@ func TestParseDiffDeletedFile(t *testing.T) {
 	}
 }
 
+const renameOnlyDiff = `diff --git a/foo.txt b/bar.txt
+similarity index 100%
+rename from foo.txt
+rename to bar.txt
+`
+
+func TestParseDiffRenameOnly(t *testing.T) {
+	files, err := ParseDiff(renameOnlyDiff)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	f := files[0]
+	if f.Path != "bar.txt" || f.OldPath != "foo.txt" {
+		t.Fatalf("unexpected file: %+v", f)
+	}
+	if len(f.Hunks) != 0 {
+		t.Fatalf("expected 0 hunks, got %d", len(f.Hunks))
+	}
+}
+
+const modeChangeOnlyDiff = `diff --git a/bar.txt b/bar.txt
+old mode 100644
+new mode 100755
+`
+
+func TestParseDiffModeChangeOnly(t *testing.T) {
+	files, err := ParseDiff(modeChangeOnlyDiff)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "bar.txt" {
+		t.Fatalf("unexpected files: %+v", files)
+	}
+}
+
 func intp(n int) *int { return &n }
 
 func deref(p *int) any {

@@ -295,6 +295,12 @@ func ParseDiff(raw string) ([]FileDiff, error) {
 			OldPath: f.OrigName,
 			Status:  fileStatus(f.Mode),
 		}
+		if fd.Path == "" && fd.OldPath == "" {
+			// A pure rename or mode change (no content diff) has no "---"/
+			// "+++" lines for diffparser to read OrigName/NewName from —
+			// fall back to the "diff --git a/X b/Y" header line itself.
+			fd.OldPath, fd.Path = diffGitHeaderPaths(f.DiffHeader)
+		}
 		if fd.Path == "" {
 			fd.Path = fd.OldPath
 		}
@@ -398,6 +404,26 @@ func untrackedFileDiffs(runner GitRunner, repoRoot string) ([]FileDiff, error) {
 		files = append(files, fd)
 	}
 	return files, nil
+}
+
+// diffGitHeaderPathsPattern matches a "diff --git a/X b/Y" header line,
+// capturing the old and new paths.
+var diffGitHeaderPathsPattern = regexp.MustCompile(`^diff --git a/(.+) b/(.+)$`)
+
+// diffGitHeaderPaths extracts the old/new paths from a DiffFile's raw
+// DiffHeader (its first line is always "diff --git a/X b/Y") — used as a
+// fallback for diffs with no "---"/"+++" lines, such as a pure rename or a
+// mode-only change.
+func diffGitHeaderPaths(header string) (oldPath, newPath string) {
+	line := header
+	if nl := strings.IndexByte(line, '\n'); nl >= 0 {
+		line = line[:nl]
+	}
+	m := diffGitHeaderPathsPattern.FindStringSubmatch(line)
+	if m == nil {
+		return "", ""
+	}
+	return m[1], m[2]
 }
 
 func fileStatus(m diffparser.FileMode) FileStatus {
