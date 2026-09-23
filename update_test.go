@@ -240,6 +240,56 @@ func TestJumpToCommentIncludesResolvedWhenScopeToggled(t *testing.T) {
 	}
 }
 
+// TestCountPrefixRepeatsNextFile guards that a numeric prefix on tab/[/]
+// repeats file navigation, matching j/k/{}/G's existing count support.
+func TestCountPrefixRepeatsNextFile(t *testing.T) {
+	m := newModel("/repo", []FileDiff{
+		fileDiffWithLines("a.go", 1),
+		fileDiffWithLines("b.go", 1),
+		fileDiffWithLines("c.go", 1),
+	}, Session{}, nil)
+	m.fileIndex = 0
+
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	mm, _ = mm.(model).Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	got := mm.(model)
+	if got.fileIndex != 2 {
+		t.Fatalf("expected \"2\"+tab to advance 2 files to index 2, got %d", got.fileIndex)
+	}
+
+	mm, _ = got.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	mm, _ = mm.(model).Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	got = mm.(model)
+	if got.fileIndex != 0 {
+		t.Fatalf("expected \"2\"+shift+tab to go back 2 files to index 0, got %d", got.fileIndex)
+	}
+}
+
+// TestCountPrefixRepeatsNextComment guards that a numeric prefix on n/N
+// repeats comment navigation, matching j/k/{}/G's existing count support.
+func TestCountPrefixRepeatsNextComment(t *testing.T) {
+	n1, n2, n3 := 1, 1, 1
+	files := []FileDiff{
+		fileDiffWithLines("a.go", 3),
+		fileDiffWithLines("b.go", 3),
+		fileDiffWithLines("c.go", 3),
+	}
+	session := Session{Comments: []Comment{
+		{ID: "c_a", File: "a.go", NewLine: &n1},
+		{ID: "c_b", File: "b.go", NewLine: &n2},
+		{ID: "c_c", File: "c.go", NewLine: &n3},
+	}}
+	m := newModel("/repo", files, session, nil)
+	m.fileIndex, m.lineIndex = 0, 0 // before c_a
+
+	mm, _ := m.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	mm, _ = mm.(model).Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	got := mm.(model)
+	if got.files[got.fileIndex].file.Path != "b.go" {
+		t.Fatalf("expected \"2\"+n to land 2 comments ahead on b.go, got %q", got.files[got.fileIndex].file.Path)
+	}
+}
+
 func TestSessionModTimeZeroWhenMissing(t *testing.T) {
 	withTempHome(t)
 	mt, err := sessionModTime("/repo/never-written")

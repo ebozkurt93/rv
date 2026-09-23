@@ -353,9 +353,13 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diffScroll = clampDiffScroll(m.diffScroll-count, m.bodyHeight())
 
 	case keyMatches(msg, k.NextFile):
-		m.selectVisibleFile(1)
+		for i := 0; i < count; i++ {
+			m.selectVisibleFile(1)
+		}
 	case keyMatches(msg, k.PrevFile):
-		m.selectVisibleFile(-1)
+		for i := 0; i < count; i++ {
+			m.selectVisibleFile(-1)
+		}
 
 	case keyMatches(msg, k.NextHunk):
 		for i := 0; i < count; i++ {
@@ -367,9 +371,13 @@ func (m model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case keyMatches(msg, k.NextComment):
-		m.jumpToComment(1)
+		for i := 0; i < count; i++ {
+			m.jumpToComment(1)
+		}
 	case keyMatches(msg, k.PrevComment):
-		m.jumpToComment(-1)
+		for i := 0; i < count; i++ {
+			m.jumpToComment(-1)
+		}
 	case keyMatches(msg, k.ToggleCommentScope):
 		m.commentNavIncludeResolved = !m.commentNavIncludeResolved
 		m.persistUIPrefs()
