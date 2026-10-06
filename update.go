@@ -110,6 +110,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case tea.PasteMsg:
+		if m.mode == modeComment {
+			m.input += msg.Content
+		}
+		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeComment:

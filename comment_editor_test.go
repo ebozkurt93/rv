@@ -22,6 +22,20 @@ func TestAddCommentOnFreshLineStartsBlank(t *testing.T) {
 	}
 }
 
+// TestPasteIntoCommentAppendsText guards speech-to-text input, which arrives
+// as a bracketed paste rather than key presses and was silently dropped.
+func TestPasteIntoCommentAppendsText(t *testing.T) {
+	withTempHome(t)
+	m := newModel("/repo", []FileDiff{fileDiffWithLines("a.go", 3)}, Session{RepoRoot: "/repo"}, nil)
+	m.lineIndex = 1
+
+	mm, _ := m.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	mm, _ = mm.(model).Update(tea.PasteMsg{Content: "dictated comment"})
+	if got := mm.(model).input; got != "dictated comment" {
+		t.Fatalf("expected pasted text in comment input, got %q", got)
+	}
+}
+
 // TestAddCommentOnOwnUnrepliedCommentEditsInPlace guards the fix for "if I
 // do c when I'm next to an existing comment, I should be editing it again,
 // not adding a new comment there" — pressing AddComment on a line with the
